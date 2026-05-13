@@ -1,0 +1,45 @@
+{
+  "id": "com.paca.github",
+  "displayName": "GitHub Integration",
+  "description": "Integrates GitHub repositories, pull requests, and branches with Paca projects and tasks.",
+  "version": "0.1.0",
+  "permissions": ["db.read", "db.write"],
+  "backend": {
+    "allowedConfigKeys": ["ENCRYPTION_KEY", "PUBLIC_URL"],
+    "allowedOutboundDomains": ["api.github.com"],
+    "routes": [
+      { "method": "GET",    "path": "/github" },
+      { "method": "POST",   "path": "/github/token" },
+      { "method": "DELETE", "path": "/github/token" },
+      { "method": "GET",    "path": "/github/repositories" },
+      { "method": "GET",    "path": "/github/linked-repositories" },
+      { "method": "POST",   "path": "/github/linked-repositories" },
+      { "method": "DELETE", "path": "/github/linked-repositories/:repoId" },
+      { "method": "GET",    "path": "/tasks/:taskId/github/pull-requests" },
+      { "method": "POST",   "path": "/tasks/:taskId/github/pull-requests" },
+      { "method": "DELETE", "path": "/tasks/:taskId/github/pull-requests/:prId" },
+      { "method": "POST",   "path": "/tasks/:taskId/github/branches" },
+      { "method": "GET",    "path": "/tasks/:taskId/github/branches" },
+      { "method": "POST",   "path": "/webhook", "public": true }
+    ]
+  },
+  "frontend": {
+    "remoteEntryUrl": "/plugins/com.paca.github/assets/remoteEntry.js",
+    "extensionPoints": [
+      {
+        "point": "project.settings.tab",
+        "component": "GitHubSettingsTab",
+        "label": "GitHub",
+        "order": 100
+      },
+      {
+        "point": "task.detail.section",
+        "component": "GitHubTaskSection",
+        "order": 5
+      }
+    ]
+  },
+  "mcp": {
+    "remoteEntryUrl": "/plugins-mcp/com.paca.github/mcp.js"
+  }
+}

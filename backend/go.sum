@@ -1,0 +1,4 @@
+github.com/Paca-AI/plugin-sdk-go v0.2.0-rc.6 h1:XN5rln12wkqfhiDg3Ds98WZhX1oiGqWDBRHWoE03wYY=
+github.com/Paca-AI/plugin-sdk-go v0.2.0-rc.6/go.mod h1:5WeC6cSEf2wM1ovICZbDaVky9oi5id/Qpdfc5LDAQnw=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=

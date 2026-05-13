@@ -1,0 +1,113 @@
+// Package main implements the com.paca.github backend WASM plugin.
+//
+// It manages GitHub integration for projects: PAT storage, repository linking
+// with automatic webhook creation, pull-request caching, branch creation, and
+// webhook event processing.
+package main
+
+import (
+	"encoding/json"
+	"time"
+
+	plugin "github.com/Paca-AI/plugin-sdk-go"
+)
+
+// nowStr returns the current UTC time as an RFC3339Nano string.
+func nowStr() string {
+	return time.Now().UTC().Format(time.RFC3339Nano)
+}
+
+// githubPlugin implements plugin.Plugin.
+type githubPlugin struct {
+	db  *plugin.DB
+	log *plugin.Logger
+	cfg *plugin.Config
+}
+
+// Init registers all routes and event handlers on the provided context.
+func (p *githubPlugin) Init(ctx *plugin.Context) error {
+	p.db = ctx.DB()
+	p.log = ctx.Log()
+	p.cfg = ctx.Config()
+
+	// Event handlers
+	ctx.On("task.deleted", p.handleTaskDeleted)
+	ctx.On("project.deleted", p.handleProjectDeleted)
+
+	// Integration routes (project-scoped)
+	ctx.Route("GET", "/github", p.getIntegration)
+	ctx.Route("POST", "/github/token", p.setToken)
+	ctx.Route("DELETE", "/github/token", p.deleteToken)
+	ctx.Route("GET", "/github/repositories", p.listRepositories)
+	ctx.Route("GET", "/github/linked-repositories", p.listLinkedRepositories)
+	ctx.Route("POST", "/github/linked-repositories", p.linkRepository)
+	ctx.Route("DELETE", "/github/linked-repositories/:repoId", p.unlinkRepository)
+
+	// Task-scoped routes
+	ctx.Route("GET", "/tasks/:taskId/github/pull-requests", p.listTaskPRs)
+	ctx.Route("POST", "/tasks/:taskId/github/pull-requests", p.linkPRToTask)
+	ctx.Route("DELETE", "/tasks/:taskId/github/pull-requests/:prId", p.unlinkPRFromTask)
+	ctx.Route("POST", "/tasks/:taskId/github/branches", p.createBranch)
+	ctx.Route("GET", "/tasks/:taskId/github/branches", p.listTaskBranches)
+
+	// Webhook – public endpoint, GitHub will POST events here.
+	ctx.Route("POST", "/webhook", p.receiveWebhook)
+
+	return nil
+}
+
+// Shutdown is a no-op for this plugin.
+func (p *githubPlugin) Shutdown() {}
+
+// ─── envelope helpers ────────────────────────────────────────────────────────
+
+type envelope struct {
+	Success bool `json:"success"`
+	Data    any  `json:"data"`
+}
+
+func ok(res *plugin.Response, data any) {
+	res.JSON(200, envelope{Success: true, Data: data})
+}
+
+func created(res *plugin.Response, data any) {
+	res.JSON(201, envelope{Success: true, Data: data})
+}
+
+func noContent(res *plugin.Response) {
+	res.NoContent()
+}
+
+func apiError(res *plugin.Response, code int, errCode, message string) {
+	res.JSON(code, map[string]any{
+		"success":    false,
+		"error":      message,
+		"error_code": errCode,
+	})
+}
+
+// ─── event handlers ──────────────────────────────────────────────────────────
+
+// handleTaskDeleted cleans up branches and PR links when a task is deleted.
+func (p *githubPlugin) handleTaskDeleted(evt *plugin.Event) {
+	var payload struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal(evt.Payload, &payload); err != nil || payload.TaskID == "" {
+		return
+	}
+	_, _ = p.db.Exec(`DELETE FROM github_task_branches WHERE task_id = $1`, payload.TaskID)
+	_, _ = p.db.Exec(`DELETE FROM github_task_pr_links WHERE task_id = $1`, payload.TaskID)
+}
+
+// handleProjectDeleted cleans up the full integration when a project is deleted.
+func (p *githubPlugin) handleProjectDeleted(evt *plugin.Event) {
+	var payload struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(evt.Payload, &payload); err != nil || payload.ProjectID == "" {
+		return
+	}
+	// Cascade via FK, but also be explicit.
+	_, _ = p.db.Exec(`DELETE FROM github_integrations WHERE project_id = $1`, payload.ProjectID)
+}

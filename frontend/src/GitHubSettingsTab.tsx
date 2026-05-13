@@ -123,16 +123,12 @@ function Modal({
 }) {
   if (!open) return null;
   return (
-    <>
-      <div
-        className="fixed inset-0 z-50 bg-black/50"
-        aria-hidden="true"
-        onClick={onClose}
-      />
-      <div className="fixed inset-0 z-50 flex items-start justify-center pt-[7.5vh] p-4 overflow-y-auto">
-        {children}
-      </div>
-    </>
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-[7.5vh] p-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -147,6 +143,7 @@ function ModalContent({
     <div
       role="dialog"
       aria-modal="true"
+      onClick={(e) => e.stopPropagation()}
       className={cn(
         "relative z-10 mx-auto flex flex-col max-h-[85vh] lg:h-[85vh] overflow-hidden rounded-lg border border-border bg-background shadow-xl w-full",
         className,

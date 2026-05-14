@@ -2,25 +2,175 @@
   "id": "com.paca.github",
   "displayName": "GitHub Integration",
   "description": "Integrates GitHub repositories, pull requests, and branches with Paca projects and tasks.",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "permissions": ["db.read", "db.write"],
   "backend": {
     "allowedConfigKeys": ["ENCRYPTION_KEY", "PUBLIC_URL"],
     "allowedOutboundDomains": ["api.github.com"],
     "routes": [
-      { "method": "GET",    "path": "/github" },
-      { "method": "POST",   "path": "/github/token" },
-      { "method": "DELETE", "path": "/github/token" },
-      { "method": "GET",    "path": "/github/repositories" },
-      { "method": "GET",    "path": "/github/linked-repositories" },
-      { "method": "POST",   "path": "/github/linked-repositories" },
-      { "method": "DELETE", "path": "/github/linked-repositories/:repoId" },
-      { "method": "GET",    "path": "/tasks/:taskId/github/pull-requests" },
-      { "method": "POST",   "path": "/tasks/:taskId/github/pull-requests" },
-      { "method": "DELETE", "path": "/tasks/:taskId/github/pull-requests/:prId" },
-      { "method": "POST",   "path": "/tasks/:taskId/github/branches" },
-      { "method": "GET",    "path": "/tasks/:taskId/github/branches" },
-      { "method": "POST",   "path": "/webhook", "public": true }
+      {
+        "method": "GET",
+        "path": "/github",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["projects.read"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/github/token",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["projects.write"]
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/github/token",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["projects.write"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/github/repositories",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["projects.read"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/github/linked-repositories",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["projects.read"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/github/linked-repositories",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["projects.write"]
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/github/linked-repositories/:repoId",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["projects.write"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/tasks/:taskId/github/pull-requests",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.read"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/tasks/:taskId/github/pull-requests",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.write"]
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/tasks/:taskId/github/pull-requests/:prId",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.write"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/tasks/:taskId/github/branches",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.write"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/tasks/:taskId/github/branches",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.read"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/webhook",
+        "middlewares": [
+          { "name": "optionalAuthn" }
+        ]
+      }
     ]
   },
   "frontend": {

@@ -20,8 +20,8 @@ var branchTaskRefRe = regexp.MustCompile(`(?i)\b([A-Z][A-Z0-9]{1,19})-(\d{1,6})\
 // ─── POST /webhook ────────────────────────────────────────────────────────────
 
 func (p *githubPlugin) receiveWebhook(req *plugin.Request, res *plugin.Response) {
-	event := req.Headers["x-github-event"]
-	signature := req.Headers["x-hub-signature-256"]
+	event := req.Headers["X-Github-Event"]
+	signature := req.Headers["X-Hub-Signature-256"]
 
 	body := req.Body
 	if len(body) == 0 {
@@ -36,17 +36,26 @@ func (p *githubPlugin) receiveWebhook(req *plugin.Request, res *plugin.Response)
 	}
 
 	// Always 204 so GitHub does not retry on application errors.
-	_ = p.handleWebhookEvent(repoFullName, event, signature, body)
+	if err := p.handleWebhookEvent(repoFullName, event, signature, body); err != nil {
+		p.log.Error("github: webhook handler error: " + err.Error())
+	}
 	res.NoContent()
 }
 
 func (p *githubPlugin) handleWebhookEvent(repoFullName, event, signature string, payload []byte) error {
+	p.log.Info("github: webhook received, repo=" + repoFullName + ", event=" + event)
+
 	// Look up the repository by full name.
 	result, err := p.db.Query(`
 		SELECT id, project_id, integration_id, owner, repo_name, full_name, default_branch, webhook_secret_enc
 		FROM github_repositories WHERE full_name = $1
 	`, repoFullName)
-	if err != nil || len(result.Rows) == 0 {
+	if err != nil {
+		p.log.Error("github: failed to query repository: " + err.Error() + ", repo=" + repoFullName)
+		return err
+	}
+	if len(result.Rows) == 0 {
+		p.log.Info("github: repository not found, repo=" + repoFullName)
 		return nil
 	}
 	sc := newRowScanner(result.Columns, result.Rows[0])
@@ -57,16 +66,24 @@ func (p *githubPlugin) handleWebhookEvent(repoFullName, event, signature string,
 	// Verify HMAC signature.
 	if webhookSecretEnc != "" {
 		secret, dErr := p.decrypt(webhookSecretEnc)
-		if dErr == nil && !verifyHMAC(payload, secret, signature) {
+		if dErr != nil {
+			p.log.Error("github: failed to decrypt webhook secret: " + dErr.Error() + ", repo=" + repoFullName)
+			return dErr
+		}
+		if !verifyHMAC(payload, secret, signature) {
+			p.log.Info("github: invalid webhook signature, repo=" + repoFullName)
 			return nil // silently drop invalid signatures
 		}
 	}
 
 	switch event {
 	case "pull_request":
+		p.log.Info("github: handling pull_request event, repo=" + repoFullName)
 		return p.handlePREvent(repoID, projectID, payload)
 	case "push":
 		return p.handlePushEvent(repoID, projectID, payload)
+	default:
+		p.log.Info("github: unhandled event type, event=" + event)
 	}
 	return nil
 }
@@ -77,9 +94,13 @@ func (p *githubPlugin) handlePREvent(repoID, projectID string, payload []byte) e
 		PullRequest ghPullRequest `json:"pull_request"`
 	}
 	if err := json.Unmarshal(payload, &event); err != nil {
-		return nil
+		p.log.Error("github: failed to parse pull_request event: " + err.Error())
+		return err
 	}
 	gh := &event.PullRequest
+
+	p.log.Info("github: processing pull_request, action=" + event.Action + ", pr_number=" + strconv.Itoa(gh.Number) + ", title=" + gh.Title + ", repo_id=" + repoID)
+
 	state := gh.State
 	if gh.Merged {
 		state = "merged"
@@ -94,20 +115,29 @@ func (p *githubPlugin) handlePREvent(repoID, projectID string, payload []byte) e
 	}
 
 	// Check if PR already cached.
-	existResult, _ := p.db.Query(
+	existResult, err := p.db.Query(
 		`SELECT id, created_at FROM github_pull_requests WHERE repo_id = $1 AND pr_number = $2`,
 		repoID, gh.Number,
 	)
-	prID := uuid.New().String()
-	prCreatedAt := now
+	if err != nil {
+		p.log.Error("github: failed to check existing PR: " + err.Error() + ", repo_id=" + repoID + ", pr_number=" + strconv.Itoa(gh.Number))
+		return err
+	}
+	var prID string
+	var prCreatedAt string
 	if existResult != nil && len(existResult.Rows) > 0 {
 		eSc := newRowScanner(existResult.Columns, existResult.Rows[0])
 		prID = eSc.str("id")
 		prCreatedAt = eSc.str("created_at")
+		p.log.Info("github: PR already cached, updating, pr_id=" + prID + ", pr_number=" + strconv.Itoa(gh.Number))
+	} else {
+		prID = uuid.New().String()
+		prCreatedAt = now
+		p.log.Info("github: PR not cached, inserting, pr_id=" + prID + ", pr_number=" + strconv.Itoa(gh.Number))
 	}
 
 	// Upsert the PR cache.
-	_, err := p.db.Exec(`
+	_, err = p.db.Exec(`
 		INSERT INTO github_pull_requests
 			(id, project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
@@ -117,8 +147,11 @@ func (p *githubPlugin) handlePREvent(repoID, projectID string, payload []byte) e
 	`, prID, projectID, repoID, gh.Number, gh.ID, gh.Title, state,
 		gh.HTMLURL, gh.Head.Ref, gh.Base.Ref, gh.User.Login, mergedAtStr, prCreatedAt, now)
 	if err != nil {
+		p.log.Error("github: failed to upsert PR: " + err.Error() + ", repo_id=" + repoID + ", pr_number=" + strconv.Itoa(gh.Number))
 		return err
 	}
+
+	p.log.Info("github: PR saved successfully, pr_id=" + prID + ", pr_number=" + strconv.Itoa(gh.Number) + ", action=" + event.Action)
 
 	// On "opened"/"reopened": auto-link to task if head branch is already linked.
 	if event.Action == "opened" || event.Action == "reopened" {
@@ -141,6 +174,7 @@ func (p *githubPlugin) handlePREvent(repoID, projectID string, payload []byte) e
 				"repo_id":    repoID,
 				"pr_number":  gh.Number,
 			})
+			p.log.Info("github: PR auto-linked to task, task_id=" + taskID + ", pr_number=" + strconv.Itoa(gh.Number))
 		}
 	}
 

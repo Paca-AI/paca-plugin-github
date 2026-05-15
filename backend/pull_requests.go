@@ -140,12 +140,15 @@ func (p *githubPlugin) linkPRToTask(req *plugin.Request, res *plugin.Response) {
 		`SELECT id, created_at FROM github_pull_requests WHERE repo_id = $1 AND pr_number = $2`,
 		b.RepoID, b.PRNumber,
 	)
-	prID := uuid.New().String()
-	prCreatedAt := now
+	var prID string
+	var prCreatedAt string
 	if existResult != nil && len(existResult.Rows) > 0 {
 		eSc := newRowScanner(existResult.Columns, existResult.Rows[0])
 		prID = eSc.str("id")
 		prCreatedAt = eSc.str("created_at")
+	} else {
+		prID = uuid.New().String()
+		prCreatedAt = now
 	}
 
 	var mergedAtStr *string

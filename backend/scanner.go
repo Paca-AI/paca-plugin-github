@@ -55,14 +55,3 @@ func (s *scanner) int64Val(col string) int64 {
 func (s *scanner) intVal(col string) int {
 	return int(s.int64Val(col))
 }
-
-func (s *scanner) boolVal(col string) bool {
-	i, ok := s.idx[col]
-	if !ok || i >= len(s.row) || s.row[i] == nil {
-		return false
-	}
-	if v, ok := s.row[i].(bool); ok {
-		return v
-	}
-	return false
-}

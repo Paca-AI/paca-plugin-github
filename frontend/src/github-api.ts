@@ -128,26 +128,26 @@ export const taskBranchesKey = (projectId: string, taskId: string) =>
 export async function getGitHubIntegration(
   api: PluginApiClient,
 ): Promise<GitHubIntegration> {
-  return api.pluginGet<GitHubIntegration>(PLUGIN_ID, "/github");
+  return api.pluginGet<GitHubIntegration>(PLUGIN_ID, `/projects/${api.projectId}/github`);
 }
 
 export async function setGitHubToken(
   api: PluginApiClient,
   token: string,
 ): Promise<GitHubIntegration> {
-  return api.pluginPost<GitHubIntegration>(PLUGIN_ID, "/github/token", {
+  return api.pluginPost<GitHubIntegration>(PLUGIN_ID, `/projects/${api.projectId}/github/token`, {
     token,
   });
 }
 
 export async function deleteGitHubToken(api: PluginApiClient): Promise<void> {
-  return api.pluginDelete(PLUGIN_ID, "/github/token");
+  return api.pluginDelete(PLUGIN_ID, `/projects/${api.projectId}/github/token`);
 }
 
 export async function listAccessibleRepos(
   api: PluginApiClient,
 ): Promise<AccessibleRepo[]> {
-  return api.pluginGet<AccessibleRepo[]>(PLUGIN_ID, "/github/repositories");
+  return api.pluginGet<AccessibleRepo[]>(PLUGIN_ID, `/projects/${api.projectId}/github/repositories`);
 }
 
 export async function linkRepository(
@@ -157,7 +157,7 @@ export async function linkRepository(
 ): Promise<LinkedRepository> {
   return api.pluginPost<LinkedRepository>(
     PLUGIN_ID,
-    "/github/linked-repositories",
+    `/projects/${api.projectId}/github/linked-repositories`,
     { owner, repo_name: repoName },
   );
 }
@@ -167,7 +167,7 @@ export async function listLinkedRepositories(
 ): Promise<LinkedRepository[]> {
   return api.pluginGet<LinkedRepository[]>(
     PLUGIN_ID,
-    "/github/linked-repositories",
+    `/projects/${api.projectId}/github/linked-repositories`,
   );
 }
 
@@ -177,7 +177,7 @@ export async function unlinkRepository(
 ): Promise<void> {
   return api.pluginDelete(
     PLUGIN_ID,
-    `/github/linked-repositories/${repoId}`,
+    `/projects/${api.projectId}/github/linked-repositories/${repoId}`,
   );
 }
 
@@ -187,7 +187,7 @@ export async function listTaskPRs(
 ): Promise<PullRequest[]> {
   return api.pluginGet<PullRequest[]>(
     PLUGIN_ID,
-    `/tasks/${taskId}/github/pull-requests`,
+    `/projects/${api.projectId}/tasks/${taskId}/github/pull-requests`,
   );
 }
 
@@ -199,7 +199,7 @@ export async function linkPRToTask(
 ): Promise<PullRequest> {
   return api.pluginPost<PullRequest>(
     PLUGIN_ID,
-    `/tasks/${taskId}/github/pull-requests`,
+    `/projects/${api.projectId}/tasks/${taskId}/github/pull-requests`,
     { repo_id: repoId, pr_number: prNumber },
   );
 }
@@ -211,7 +211,7 @@ export async function unlinkPRFromTask(
 ): Promise<void> {
   return api.pluginDelete(
     PLUGIN_ID,
-    `/tasks/${taskId}/github/pull-requests/${prId}`,
+    `/projects/${api.projectId}/tasks/${taskId}/github/pull-requests/${prId}`,
   );
 }
 
@@ -221,7 +221,7 @@ export async function listTaskBranches(
 ): Promise<TaskBranch[]> {
   return api.pluginGet<TaskBranch[]>(
     PLUGIN_ID,
-    `/tasks/${taskId}/github/branches`,
+    `/projects/${api.projectId}/tasks/${taskId}/github/branches`,
   );
 }
 
@@ -234,7 +234,7 @@ export async function createBranch(
 ): Promise<CreateBranchResult> {
   return api.pluginPost<CreateBranchResult>(
     PLUGIN_ID,
-    `/tasks/${taskId}/github/branches`,
+    `/projects/${api.projectId}/tasks/${taskId}/github/branches`,
     { repo_id: repoId, branch_name: branchName, source_branch: sourceBranch },
   );
 }

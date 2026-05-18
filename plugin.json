@@ -10,7 +10,7 @@
     "routes": [
       {
         "method": "GET",
-        "path": "/github",
+        "path": "/projects/:projectId/github",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -23,7 +23,7 @@
       },
       {
         "method": "POST",
-        "path": "/github/token",
+        "path": "/projects/:projectId/github/token",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -36,7 +36,7 @@
       },
       {
         "method": "DELETE",
-        "path": "/github/token",
+        "path": "/projects/:projectId/github/token",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -49,7 +49,7 @@
       },
       {
         "method": "GET",
-        "path": "/github/repositories",
+        "path": "/projects/:projectId/github/repositories",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -62,7 +62,7 @@
       },
       {
         "method": "GET",
-        "path": "/github/linked-repositories",
+        "path": "/projects/:projectId/github/linked-repositories",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -75,7 +75,7 @@
       },
       {
         "method": "POST",
-        "path": "/github/linked-repositories",
+        "path": "/projects/:projectId/github/linked-repositories",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -88,7 +88,7 @@
       },
       {
         "method": "DELETE",
-        "path": "/github/linked-repositories/:repoId",
+        "path": "/projects/:projectId/github/linked-repositories/:repoId",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -101,7 +101,7 @@
       },
       {
         "method": "GET",
-        "path": "/tasks/:taskId/github/pull-requests",
+        "path": "/projects/:projectId/tasks/:taskId/github/pull-requests",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -114,7 +114,7 @@
       },
       {
         "method": "POST",
-        "path": "/tasks/:taskId/github/pull-requests",
+        "path": "/projects/:projectId/tasks/:taskId/github/pull-requests",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -127,7 +127,7 @@
       },
       {
         "method": "DELETE",
-        "path": "/tasks/:taskId/github/pull-requests/:prId",
+        "path": "/projects/:projectId/tasks/:taskId/github/pull-requests/:prId",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -140,7 +140,7 @@
       },
       {
         "method": "POST",
-        "path": "/tasks/:taskId/github/branches",
+        "path": "/projects/:projectId/tasks/:taskId/github/branches",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -153,7 +153,7 @@
       },
       {
         "method": "GET",
-        "path": "/tasks/:taskId/github/branches",
+        "path": "/projects/:projectId/tasks/:taskId/github/branches",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },

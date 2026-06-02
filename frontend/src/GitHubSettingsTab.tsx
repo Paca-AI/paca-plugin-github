@@ -386,6 +386,7 @@ function AddRepoDialog({
     queryKey: accessibleReposKey(projectId),
     queryFn: () => listAccessibleRepos(api),
     enabled: open,
+    staleTime: 0,
   });
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -473,7 +474,7 @@ function AddRepoDialog({
             disabled={isFetching}
             className="flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             onClick={() =>
-              queryClient.invalidateQueries({
+              queryClient.refetchQueries({
                 queryKey: accessibleReposKey(projectId),
               })
             }

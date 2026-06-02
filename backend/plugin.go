@@ -34,23 +34,27 @@ func (p *githubPlugin) Init(ctx *plugin.Context) error {
 	ctx.On("task.deleted", p.handleTaskDeleted)
 	ctx.On("project.deleted", p.handleProjectDeleted)
 
-	// Integration routes (project-scoped)
-	ctx.Route("GET", "/github", p.getIntegration)
-	ctx.Route("POST", "/github/token", p.setToken)
-	ctx.Route("DELETE", "/github/token", p.deleteToken)
-	ctx.Route("GET", "/github/repositories", p.listRepositories)
-	ctx.Route("GET", "/github/linked-repositories", p.listLinkedRepositories)
-	ctx.Route("POST", "/github/linked-repositories", p.linkRepository)
-	ctx.Route("DELETE", "/github/linked-repositories/:repoId", p.unlinkRepository)
+	// ── Integration (GitHub token / connection) ───────────────────────────────
+	ctx.Route("GET", "/integration", p.getIntegration)
+	ctx.Route("POST", "/integration/token", p.setToken)
+	ctx.Route("DELETE", "/integration/token", p.deleteToken)
+	ctx.Route("GET", "/integration/accessible-repos", p.listAccessibleRepos)
 
-	// Task-scoped routes
-	ctx.Route("GET", "/tasks/:taskId/github/pull-requests", p.listTaskPRs)
-	ctx.Route("POST", "/tasks/:taskId/github/pull-requests", p.linkPRToTask)
-	ctx.Route("DELETE", "/tasks/:taskId/github/pull-requests/:prId", p.unlinkPRFromTask)
-	ctx.Route("POST", "/tasks/:taskId/github/branches", p.createBranch)
-	ctx.Route("GET", "/tasks/:taskId/github/branches", p.listTaskBranches)
+	// ── Repositories (repos linked to the project) ────────────────────────────
+	ctx.Route("GET", "/repositories", p.listRepositories)
+	ctx.Route("POST", "/repositories", p.linkRepository)
+	ctx.Route("DELETE", "/repositories/:repoId", p.unlinkRepository)
+	ctx.Route("GET", "/repositories/:repoId/clone-info", p.getRepoCloneInfo)
 
-	// Webhook – public endpoint, GitHub will POST events here.
+	// ── Task resources ────────────────────────────────────────────────────────
+	ctx.Route("GET", "/tasks/:taskId/pull-requests", p.listTaskPRs)
+	ctx.Route("POST", "/tasks/:taskId/pull-requests", p.createPullRequest)
+	ctx.Route("POST", "/tasks/:taskId/pull-requests/link", p.linkPRToTask)
+	ctx.Route("DELETE", "/tasks/:taskId/pull-requests/:prId", p.unlinkPRFromTask)
+	ctx.Route("GET", "/tasks/:taskId/branches", p.listTaskBranches)
+	ctx.Route("POST", "/tasks/:taskId/branches", p.createBranch)
+
+	// ── Webhook ───────────────────────────────────────────────────────────────
 	ctx.Route("POST", "/webhook", p.receiveWebhook)
 
 	return nil

@@ -173,20 +173,70 @@ func (c *ghClient) validateToken(ctx context.Context) error {
 }
 
 func (c *ghClient) listRepositories(ctx context.Context) ([]ghRepository, error) {
+	seen := make(map[string]struct{})
 	var all []ghRepository
-	page := 1
-	for {
-		url := fmt.Sprintf("%s/user/repos?affiliation=owner,collaborator&per_page=100&page=%d", ghBaseURL, page)
+
+	addRepo := func(r ghRepository) {
+		if _, ok := seen[r.FullName]; ok {
+			return
+		}
+		seen[r.FullName] = struct{}{}
+		all = append(all, r)
+	}
+
+	// 1. Repos directly accessible to the user (owned + collaborator + org member).
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("%s/user/repos?visibility=all&affiliation=owner,collaborator,organization_member&per_page=100&page=%d", ghBaseURL, page)
 		var batch []ghRepository
 		if err := c.get(ctx, url, &batch); err != nil {
 			return nil, err
 		}
-		all = append(all, batch...)
+		for _, r := range batch {
+			addRepo(r)
+		}
 		if len(batch) < 100 {
 			break
 		}
-		page++
 	}
+
+	// 2. List all orgs the user belongs to, then fetch each org's repos
+	//    explicitly. This catches orgs where the membership is private or
+	//    where the token has "read:org" but not full org repo visibility.
+	var orgs []struct {
+		Login string `json:"login"`
+	}
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("%s/user/orgs?per_page=100&page=%d", ghBaseURL, page)
+		var batch []struct {
+			Login string `json:"login"`
+		}
+		if err := c.get(ctx, url, &batch); err != nil {
+			// Non-fatal: proceed with what we have from /user/repos.
+			break
+		}
+		orgs = append(orgs, batch...)
+		if len(batch) < 100 {
+			break
+		}
+	}
+
+	for _, org := range orgs {
+		for page := 1; ; page++ {
+			url := fmt.Sprintf("%s/orgs/%s/repos?type=all&per_page=100&page=%d", ghBaseURL, org.Login, page)
+			var batch []ghRepository
+			if err := c.get(ctx, url, &batch); err != nil {
+				// Skip orgs where the token lacks access.
+				break
+			}
+			for _, r := range batch {
+				addRepo(r)
+			}
+			if len(batch) < 100 {
+				break
+			}
+		}
+	}
+
 	return all, nil
 }
 
@@ -229,6 +279,23 @@ func (c *ghClient) getPullRequest(ctx context.Context, owner, repo string, prNum
 	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", ghBaseURL, owner, repo, prNumber)
 	var pr ghPullRequest
 	if err := c.get(ctx, url, &pr); err != nil {
+		return nil, err
+	}
+	return &pr, nil
+}
+
+func (c *ghClient) createPullRequest(ctx context.Context, owner, repo, title, head, base, body string) (*ghPullRequest, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/pulls", ghBaseURL, owner, repo)
+	reqBody := map[string]string{
+		"title": title,
+		"head":  head,
+		"base":  base,
+	}
+	if body != "" {
+		reqBody["body"] = body
+	}
+	var pr ghPullRequest
+	if err := c.post(ctx, url, reqBody, &pr); err != nil {
 		return nil, err
 	}
 	return &pr, nil

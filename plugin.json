@@ -3,6 +3,7 @@
   "displayName": "GitHub Integration",
   "description": "Integrates GitHub repositories, pull requests, and branches with Paca projects and tasks.",
   "version": "0.1.2",
+  "capabilities": ["repository"],
   "permissions": ["db.read", "db.write"],
   "backend": {
     "allowedConfigKeys": ["ENCRYPTION_KEY", "PUBLIC_URL"],
@@ -10,7 +11,7 @@
     "routes": [
       {
         "method": "GET",
-        "path": "/projects/:projectId/github",
+        "path": "/projects/:projectId/integration",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -23,7 +24,7 @@
       },
       {
         "method": "POST",
-        "path": "/projects/:projectId/github/token",
+        "path": "/projects/:projectId/integration/token",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -36,7 +37,7 @@
       },
       {
         "method": "DELETE",
-        "path": "/projects/:projectId/github/token",
+        "path": "/projects/:projectId/integration/token",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -49,7 +50,7 @@
       },
       {
         "method": "GET",
-        "path": "/projects/:projectId/github/repositories",
+        "path": "/projects/:projectId/integration/accessible-repos",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -62,7 +63,7 @@
       },
       {
         "method": "GET",
-        "path": "/projects/:projectId/github/linked-repositories",
+        "path": "/projects/:projectId/repositories",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -75,7 +76,7 @@
       },
       {
         "method": "POST",
-        "path": "/projects/:projectId/github/linked-repositories",
+        "path": "/projects/:projectId/repositories",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -88,7 +89,7 @@
       },
       {
         "method": "DELETE",
-        "path": "/projects/:projectId/github/linked-repositories/:repoId",
+        "path": "/projects/:projectId/repositories/:repoId",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -101,7 +102,20 @@
       },
       {
         "method": "GET",
-        "path": "/projects/:projectId/tasks/:taskId/github/pull-requests",
+        "path": "/projects/:projectId/repositories/:repoId/clone-info",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["projects.read"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/projects/:projectId/tasks/:taskId/pull-requests",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -114,20 +128,7 @@
       },
       {
         "method": "POST",
-        "path": "/projects/:projectId/tasks/:taskId/github/pull-requests",
-        "middlewares": [
-          { "name": "optionalAuthn" },
-          { "name": "requireFreshPassword" },
-          {
-            "name": "requirePermissions",
-            "scope": "project",
-            "permissions": ["tasks.write"]
-          }
-        ]
-      },
-      {
-        "method": "DELETE",
-        "path": "/projects/:projectId/tasks/:taskId/github/pull-requests/:prId",
+        "path": "/projects/:projectId/tasks/:taskId/pull-requests",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -140,7 +141,20 @@
       },
       {
         "method": "POST",
-        "path": "/projects/:projectId/tasks/:taskId/github/branches",
+        "path": "/projects/:projectId/tasks/:taskId/pull-requests/link",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.write"]
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/projects/:projectId/tasks/:taskId/pull-requests/:prId",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -153,7 +167,7 @@
       },
       {
         "method": "GET",
-        "path": "/projects/:projectId/tasks/:taskId/github/branches",
+        "path": "/projects/:projectId/tasks/:taskId/branches",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
@@ -161,6 +175,19 @@
             "name": "requirePermissions",
             "scope": "project",
             "permissions": ["tasks.read"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/projects/:projectId/tasks/:taskId/branches",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.write"]
           }
         ]
       },

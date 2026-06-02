@@ -71,7 +71,7 @@ func (p *githubPlugin) listTaskPRs(req *plugin.Request, res *plugin.Response) {
 	ok(res, items)
 }
 
-// ─── POST /tasks/:taskId/github/pull-requests ─────────────────────────────────
+// ─── POST /tasks/:taskId/github/pull-requests/link ───────────────────────────
 
 func (p *githubPlugin) linkPRToTask(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
@@ -210,6 +210,129 @@ func (p *githubPlugin) linkPRToTask(req *plugin.Request, res *plugin.Response) {
 		Author:     ghPR.User.Login,
 		MergedAt:   mergedAtStr,
 		CreatedAt:  prCreatedAt,
+		UpdatedAt:  now,
+	})
+}
+
+// ─── POST /tasks/:taskId/github/pull-requests ─────────────────────────────────
+
+func (p *githubPlugin) createPullRequest(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
+	taskID := req.PathParam("taskId")
+
+	type bodyT struct {
+		RepoID     string `json:"repo_id"`
+		Title      string `json:"title"`
+		HeadBranch string `json:"head_branch"`
+		BaseBranch string `json:"base_branch"`
+		Body       string `json:"body"`
+	}
+	b, err := plugin.JSONBody[bodyT](req)
+	if err != nil || b.RepoID == "" || b.Title == "" || b.HeadBranch == "" || b.BaseBranch == "" {
+		apiError(res, 400, "BAD_REQUEST", "repo_id, title, head_branch, and base_branch are required")
+		return
+	}
+
+	token, err := p.decryptToken(projectID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+
+	repoResult, rErr := p.db.Query(
+		`SELECT owner, repo_name FROM github_repositories WHERE id = $1 AND project_id = $2`,
+		b.RepoID, projectID,
+	)
+	if rErr != nil {
+		apiError(res, 500, "INTERNAL_ERROR", rErr.Error())
+		return
+	}
+	if len(repoResult.Rows) == 0 {
+		apiError(res, 404, "GITHUB_REPOSITORY_NOT_FOUND", "Repository not found")
+		return
+	}
+	rSc := newRowScanner(repoResult.Columns, repoResult.Rows[0])
+	owner := rSc.str("owner")
+	repoName := rSc.str("repo_name")
+
+	ghc := newGHClient(token)
+	ghPR, err := ghc.createPullRequest(context.Background(), owner, repoName, b.Title, b.HeadBranch, b.BaseBranch, b.Body)
+	if err != nil {
+		var apiErr *ghAPIError
+		if errors.As(err, &apiErr) {
+			switch apiErr.StatusCode {
+			case 401, 403:
+				apiError(res, 403, "GITHUB_TOKEN_INSUFFICIENT_PERMISSIONS", "Token does not have permission to create pull requests")
+				return
+			case 422:
+				apiError(res, 422, "GITHUB_PR_VALIDATION_ERROR", fmt.Sprintf("GitHub validation error: %s", apiErr.Message))
+				return
+			}
+		}
+		apiError(res, 502, "INTERNAL_ERROR", fmt.Sprintf("failed to create pull request: %s", err))
+		return
+	}
+
+	state := ghPR.State
+	if ghPR.Merged {
+		state = "merged"
+	}
+
+	now := nowStr()
+	prID := uuid.New().String()
+
+	var mergedAtStr *string
+	if ghPR.MergedAt != nil {
+		s := ghPR.MergedAt.UTC().Format("2006-01-02T15:04:05.999999999Z")
+		mergedAtStr = &s
+	}
+
+	_, err = p.db.Exec(`
+		INSERT INTO github_pull_requests
+			(id, project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+		ON CONFLICT (repo_id, pr_number) DO UPDATE SET
+			title=$6, state=$7, html_url=$8, head_branch=$9, base_branch=$10,
+			author=$11, merged_at=$12, updated_at=$13
+	`, prID, projectID, b.RepoID, ghPR.Number, ghPR.ID, ghPR.Title, state,
+		ghPR.HTMLURL, ghPR.Head.Ref, ghPR.Base.Ref, ghPR.User.Login, mergedAtStr, now)
+	if err != nil {
+		apiError(res, 500, "INTERNAL_ERROR", err.Error())
+		return
+	}
+
+	linkID := uuid.New().String()
+	_, lErr := p.db.Exec(`
+		INSERT INTO github_task_pr_links (id, task_id, pull_request_id, created_at)
+		VALUES ($1,$2,$3,$4)
+		ON CONFLICT (task_id, pull_request_id) DO NOTHING
+	`, linkID, taskID, prID, now)
+	if lErr != nil {
+		p.log.Error("failed to link PR to task: " + lErr.Error())
+	}
+
+	plugin.EmitEvent("github.pr_created", map[string]any{
+		"project_id": projectID,
+		"task_id":    taskID,
+		"repo_id":    b.RepoID,
+		"pr_number":  ghPR.Number,
+		"pr_url":     ghPR.HTMLURL,
+	})
+
+	created(res, pullRequestResponse{
+		ID:         prID,
+		ProjectID:  projectID,
+		RepoID:     b.RepoID,
+		PRNumber:   ghPR.Number,
+		GitHubPRID: ghPR.ID,
+		Title:      ghPR.Title,
+		State:      state,
+		HTMLURL:    ghPR.HTMLURL,
+		HeadBranch: ghPR.Head.Ref,
+		BaseBranch: ghPR.Base.Ref,
+		Author:     ghPR.User.Login,
+		MergedAt:   mergedAtStr,
+		CreatedAt:  now,
 		UpdatedAt:  now,
 	})
 }

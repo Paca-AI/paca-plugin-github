@@ -21,7 +21,9 @@ type integrationResponse struct {
 	UpdatedAt *string `json:"updated_at,omitempty"`
 }
 
-type repoInfoResponse struct {
+// accessibleRepoResponse is returned by GET /integration/accessible-repos.
+// It reflects data fetched live from the GitHub API.
+type accessibleRepoResponse struct {
 	FullName      string `json:"full_name"`
 	Owner         string `json:"owner"`
 	RepoName      string `json:"repo_name"`
@@ -29,16 +31,31 @@ type repoInfoResponse struct {
 	Private       bool   `json:"private"`
 }
 
-type linkedRepoResponse struct {
+// repositoryResponse is the canonical DTO for a project-linked repository.
+// Returned by GET /repositories and POST /repositories.
+type repositoryResponse struct {
 	ID            string `json:"id"`
 	ProjectID     string `json:"project_id"`
 	Owner         string `json:"owner"`
 	RepoName      string `json:"repo_name"`
 	FullName      string `json:"full_name"`
 	DefaultBranch string `json:"default_branch"`
+	CloneURL      string `json:"clone_url"`
 	WebhookActive bool   `json:"webhook_active"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
+}
+
+// repoCloneInfo is returned by GET /repositories/:repoId/clone-info.
+// It includes a short-lived token for cloning.
+type repoCloneInfo struct {
+	ID        string  `json:"id"`
+	FullName  string  `json:"full_name"`
+	Owner     string  `json:"owner"`
+	RepoName  string  `json:"repo_name"`
+	CloneURL  string  `json:"clone_url"`
+	Token     string  `json:"token"`
+	ExpiresAt float64 `json:"expires_at"`
 }
 
 const githubPluginID = "com.paca.github"
@@ -69,7 +86,7 @@ func (p *githubPlugin) decryptToken(projectID string) (string, error) {
 	return p.decrypt(enc)
 }
 
-// ─── GET /github ──────────────────────────────────────────────────────────────
+// ─── GET /integration ────────────────────────────────────────────────────────
 
 func (p *githubPlugin) getIntegration(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
@@ -96,7 +113,7 @@ func (p *githubPlugin) getIntegration(req *plugin.Request, res *plugin.Response)
 	})
 }
 
-// ─── POST /github/token ───────────────────────────────────────────────────────
+// ─── POST /integration/token ─────────────────────────────────────────────────
 
 func (p *githubPlugin) setToken(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
@@ -129,12 +146,11 @@ func (p *githubPlugin) setToken(req *plugin.Request, res *plugin.Response) {
 	}
 
 	now := nowStr()
-	id := uuid.New().String()
 	_, err = p.db.Exec(`
-		INSERT INTO github_integrations (id, project_id, access_token_enc, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $4)
-		ON CONFLICT (project_id) DO UPDATE SET access_token_enc = $3, updated_at = $4
-	`, id, projectID, enc, now)
+		INSERT INTO github_integrations (project_id, access_token_enc, created_at, updated_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (project_id) DO UPDATE SET access_token_enc = EXCLUDED.access_token_enc, updated_at = EXCLUDED.updated_at
+	`, projectID, enc, now, now)
 	if err != nil {
 		apiError(res, 500, "INTERNAL_ERROR", err.Error())
 		return
@@ -160,7 +176,7 @@ func (p *githubPlugin) setToken(req *plugin.Request, res *plugin.Response) {
 	})
 }
 
-// ─── DELETE /github/token ─────────────────────────────────────────────────────
+// ─── DELETE /integration/token ───────────────────────────────────────────────
 
 func (p *githubPlugin) deleteToken(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
@@ -192,9 +208,9 @@ func (p *githubPlugin) deleteToken(req *plugin.Request, res *plugin.Response) {
 	noContent(res)
 }
 
-// ─── GET /github/repositories ────────────────────────────────────────────────
+// ─── GET /integration/accessible-repos ──────────────────────────────────────
 
-func (p *githubPlugin) listRepositories(req *plugin.Request, res *plugin.Response) {
+func (p *githubPlugin) listAccessibleRepos(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 
 	token, err := p.decryptToken(projectID)
@@ -210,9 +226,9 @@ func (p *githubPlugin) listRepositories(req *plugin.Request, res *plugin.Respons
 		return
 	}
 
-	items := make([]repoInfoResponse, len(repos))
+	items := make([]accessibleRepoResponse, len(repos))
 	for i, r := range repos {
-		items[i] = repoInfoResponse{
+		items[i] = accessibleRepoResponse{
 			FullName:      r.FullName,
 			Owner:         r.Owner.Login,
 			RepoName:      r.Name,
@@ -223,9 +239,9 @@ func (p *githubPlugin) listRepositories(req *plugin.Request, res *plugin.Respons
 	ok(res, items)
 }
 
-// ─── GET /github/linked-repositories ─────────────────────────────────────────
+// ─── GET /repositories ───────────────────────────────────────────────────────
 
-func (p *githubPlugin) listLinkedRepositories(req *plugin.Request, res *plugin.Response) {
+func (p *githubPlugin) listRepositories(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 
 	result, err := p.db.Query(`
@@ -237,16 +253,18 @@ func (p *githubPlugin) listLinkedRepositories(req *plugin.Request, res *plugin.R
 		return
 	}
 
-	items := make([]linkedRepoResponse, 0, len(result.Rows))
+	items := make([]repositoryResponse, 0, len(result.Rows))
 	for _, row := range result.Rows {
 		sc := newRowScanner(result.Columns, row)
-		items = append(items, linkedRepoResponse{
+		fullName := sc.str("full_name")
+		items = append(items, repositoryResponse{
 			ID:            sc.str("id"),
 			ProjectID:     sc.str("project_id"),
 			Owner:         sc.str("owner"),
 			RepoName:      sc.str("repo_name"),
-			FullName:      sc.str("full_name"),
+			FullName:      fullName,
 			DefaultBranch: sc.str("default_branch"),
+			CloneURL:      "https://github.com/" + fullName + ".git",
 			WebhookActive: sc.int64Val("webhook_id") > 0,
 			CreatedAt:     sc.str("created_at"),
 			UpdatedAt:     sc.str("updated_at"),
@@ -255,7 +273,7 @@ func (p *githubPlugin) listLinkedRepositories(req *plugin.Request, res *plugin.R
 	ok(res, items)
 }
 
-// ─── POST /github/linked-repositories ────────────────────────────────────────
+// ─── POST /repositories ───────────────────────────────────────────────────────
 
 func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
@@ -352,20 +370,21 @@ func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response)
 		return
 	}
 
-	created(res, linkedRepoResponse{
+	created(res, repositoryResponse{
 		ID:            repoID,
 		ProjectID:     projectID,
 		Owner:         ghRepo.Owner.Login,
 		RepoName:      ghRepo.Name,
 		FullName:      ghRepo.FullName,
 		DefaultBranch: ghRepo.DefaultBranch,
+		CloneURL:      "https://github.com/" + ghRepo.FullName + ".git",
 		WebhookActive: webhookID > 0,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	})
 }
 
-// ─── DELETE /github/linked-repositories/:repoId ───────────────────────────────
+// ─── DELETE /repositories/:repoId ────────────────────────────────────────────
 
 func (p *githubPlugin) unlinkRepository(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
@@ -404,6 +423,48 @@ func (p *githubPlugin) unlinkRepository(req *plugin.Request, res *plugin.Respons
 	}
 	noContent(res)
 }
+
+// ─── GET /repositories/:repoId/clone-info ────────────────────────────────────
+
+func (p *githubPlugin) getRepoCloneInfo(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
+	repoID := req.PathParam("repoId")
+	if repoID == "" {
+		apiError(res, 400, "BAD_REQUEST", "repoId path parameter is required")
+		return
+	}
+	result, err := p.db.Query(
+		`SELECT id, full_name, owner, repo_name FROM github_repositories WHERE project_id = $1 AND id = $2`,
+		projectID, repoID,
+	)
+	if err != nil {
+		apiError(res, 500, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	if len(result.Rows) == 0 {
+		apiError(res, 404, "GITHUB_REPOSITORY_NOT_FOUND", "repository not found")
+		return
+	}
+	token, err := p.decryptToken(projectID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+	sc := newRowScanner(result.Columns, result.Rows[0])
+	fullName := sc.str("full_name")
+	ok(res, repoCloneInfo{
+		ID:        sc.str("id"),
+		FullName:  fullName,
+		Owner:     sc.str("owner"),
+		RepoName:  sc.str("repo_name"),
+		CloneURL:  "https://github.com/" + fullName + ".git",
+		Token:     token,
+		ExpiresAt: 0,
+	})
+}
+
+// ─── GET /github/repo-info (REMOVED) ─────────────────────────────────────────
+// Replaced by GET /repositories (list all) and GET /repositories/:repoId/clone-info
 
 // ─── Error helpers ────────────────────────────────────────────────────────────
 

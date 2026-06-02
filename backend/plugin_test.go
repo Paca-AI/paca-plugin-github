@@ -65,7 +65,7 @@ func callerReq() plugintest.Request {
 
 func TestGetIntegration_NotConnected(t *testing.T) {
 	tc := setupPlugin(t)
-	res := tc.Call("GET", "/github", callerReq())
+	res := tc.Call("GET", "/integration", callerReq())
 
 	if res.StatusCode != 200 {
 		t.Fatalf("expected 200, got %d: %s", res.StatusCode, res.BodyString())

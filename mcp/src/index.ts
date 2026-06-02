@@ -22,20 +22,13 @@ interface LinkedRepository {
 	owner: string;
 	repo_name: string;
 	full_name: string;
-	private: boolean;
 	default_branch: string;
-	webhook_id: number | null;
+	clone_url: string;
+	webhook_active: boolean;
 	created_at: string;
+	updated_at: string;
 }
 
-interface AccessibleRepo {
-	id: number;
-	owner: string;
-	repo_name: string;
-	full_name: string;
-	private: boolean;
-	default_branch: string;
-}
 
 interface PullRequest {
 	id: string;
@@ -65,6 +58,23 @@ interface CreateBranchResult {
 	html_url: string;
 }
 
+interface CreatePullRequestResult {
+	id: string;
+	project_id: string;
+	repo_id: string;
+	pr_number: number;
+	github_pr_id: number;
+	title: string;
+	state: string;
+	html_url: string;
+	head_branch: string;
+	base_branch: string;
+	author: string;
+	merged_at: string | null;
+	created_at: string;
+	updated_at: string;
+}
+
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
 function formatIntegration(integration: GitHubIntegration): string {
@@ -80,19 +90,10 @@ function formatLinkedRepo(repo: LinkedRepository): string {
 ID: ${repo.id}
 Owner: ${repo.owner}
 Repo Name: ${repo.repo_name}
-Full Name: ${repo.full_name}
-Private: ${repo.private ? "Yes" : "No"}
 Default Branch: ${repo.default_branch}
-Webhook ID: ${repo.webhook_id ?? "None"}
+Clone URL: ${repo.clone_url}
+Webhook Active: ${repo.webhook_active ? "Yes" : "No"}
 Created: ${repo.created_at}`;
-}
-
-function formatAccessibleRepo(repo: AccessibleRepo): string {
-	return `Repository: ${repo.full_name}
-ID: ${repo.id}
-Owner: ${repo.owner}
-Private: ${repo.private ? "Yes" : "No"}
-Default Branch: ${repo.default_branch}`;
 }
 
 function formatPullRequest(pr: PullRequest): string {
@@ -178,18 +179,6 @@ const tools: Tool[] = [
 		},
 	},
 	// ── Repositories ─────────────────────────────────────────────────────────
-	{
-		name: "github_list_repositories",
-		description:
-			"List GitHub repositories accessible with the project's GitHub token. Use this before linking a repository.",
-		inputSchema: {
-			type: "object",
-			properties: {
-				projectId: projectIdProp,
-			},
-			required: ["projectId"],
-		},
-	},
 	{
 		name: "github_list_linked_repos",
 		description: "List GitHub repositories linked to a project.",
@@ -291,6 +280,45 @@ const tools: Tool[] = [
 			required: ["projectId", "taskId", "prId"],
 		},
 	},
+	{
+		name: "github_create_pull_request",
+		description:
+			"Create a new pull request on GitHub for a task. The pull request will be created on the linked repository and automatically linked to the task. Returns the PR URL.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				projectId: projectIdProp,
+				taskId: taskIdProp,
+				repoId: {
+					type: "string",
+					description:
+						UUID_DESC.replace("%s", "linked repository") +
+						" Use github_list_linked_repos to get the repo ID.",
+				},
+				title: {
+					type: "string",
+					description:
+						"The title for the pull request (e.g., 'feat: add user authentication').",
+				},
+				head_branch: {
+					type: "string",
+					description:
+						"The name of the branch that contains the changes (the source branch, e.g., 'feat/PROJ-42-add-feature').",
+				},
+				base_branch: {
+					type: "string",
+					description:
+						"The name of the branch to merge into (the target branch, e.g., 'main' or 'develop').",
+				},
+				body: {
+					type: "string",
+					description:
+						"The description/body for the pull request in Markdown format (optional).",
+				},
+			},
+			required: ["projectId", "taskId", "repoId", "title", "head_branch", "base_branch"],
+		},
+	},
 	// ── Branches ─────────────────────────────────────────────────────────────
 	{
 		name: "github_create_branch",
@@ -353,7 +381,7 @@ const entry: PluginMCPEntry = {
 				case "github_get_integration": {
 					const { projectId } = args as { projectId: string };
 					const integration = await api.pluginGet<GitHubIntegration>(
-						`projects/${projectId}/github`,
+						`projects/${projectId}/integration`,
 					);
 					return textResult(formatIntegration(integration));
 				}
@@ -364,7 +392,7 @@ const entry: PluginMCPEntry = {
 						token: string;
 					};
 					const integration = await api.pluginPost<GitHubIntegration>(
-						`projects/${projectId}/github/token`,
+						`projects/${projectId}/integration/token`,
 						{ token },
 					);
 					return textResult(
@@ -374,25 +402,15 @@ const entry: PluginMCPEntry = {
 
 				case "github_delete_token": {
 					const { projectId } = args as { projectId: string };
-					await api.pluginDelete(`projects/${projectId}/github/token`);
+					await api.pluginDelete(`projects/${projectId}/integration/token`);
 					return textResult("GitHub token deleted successfully.");
 				}
 
 				// ── Repositories ───────────────────────────────────────────────
-				case "github_list_repositories": {
-					const { projectId } = args as { projectId: string };
-					const repos = await api.pluginGet<AccessibleRepo[]>(
-						`projects/${projectId}/github/repositories`,
-					);
-					return textResult(
-						`Accessible GitHub Repositories:\n\n${formatList(repos, formatAccessibleRepo)}`,
-					);
-				}
-
 				case "github_list_linked_repos": {
 					const { projectId } = args as { projectId: string };
 					const repos = await api.pluginGet<LinkedRepository[]>(
-						`projects/${projectId}/github/linked-repositories`,
+						`projects/${projectId}/repositories`,
 					);
 					return textResult(
 						`Linked GitHub Repositories:\n\n${formatList(repos, formatLinkedRepo)}`,
@@ -406,7 +424,7 @@ const entry: PluginMCPEntry = {
 						repo_name: string;
 					};
 					const repo = await api.pluginPost<LinkedRepository>(
-						`projects/${projectId}/github/linked-repositories`,
+						`projects/${projectId}/repositories`,
 						{ owner, repo_name },
 					);
 					return textResult(
@@ -420,7 +438,7 @@ const entry: PluginMCPEntry = {
 						repoId: string;
 					};
 					await api.pluginDelete(
-						`projects/${projectId}/github/linked-repositories/${repoId}`,
+						`projects/${projectId}/repositories/${repoId}`,
 					);
 					return textResult(`Repository ${repoId} unlinked successfully.`);
 				}
@@ -432,7 +450,7 @@ const entry: PluginMCPEntry = {
 						taskId: string;
 					};
 					const prs = await api.pluginGet<PullRequest[]>(
-						`projects/${projectId}/tasks/${taskId}/github/pull-requests`,
+						`projects/${projectId}/tasks/${taskId}/pull-requests`,
 					);
 					return textResult(
 						`Pull Requests:\n\n${formatList(prs, formatPullRequest)}`,
@@ -447,7 +465,7 @@ const entry: PluginMCPEntry = {
 						pr_number: number;
 					};
 					const pr = await api.pluginPost<PullRequest>(
-						`projects/${projectId}/tasks/${taskId}/github/pull-requests`,
+						`projects/${projectId}/tasks/${taskId}/pull-requests/link`,
 						{ repo_id: repoId, pr_number },
 					);
 					return textResult(
@@ -462,9 +480,29 @@ const entry: PluginMCPEntry = {
 						prId: string;
 					};
 					await api.pluginDelete(
-						`projects/${projectId}/tasks/${taskId}/github/pull-requests/${prId}`,
+						`projects/${projectId}/tasks/${taskId}/pull-requests/${prId}`,
 					);
 					return textResult(`Pull request ${prId} unlinked successfully.`);
+				}
+
+				case "github_create_pull_request": {
+					const { projectId, taskId, repoId, title, head_branch, base_branch, body } =
+						args as {
+							projectId: string;
+							taskId: string;
+							repoId: string;
+							title: string;
+							head_branch: string;
+							base_branch: string;
+							body?: string;
+						};
+					const pr = await api.pluginPost<CreatePullRequestResult>(
+						`projects/${projectId}/tasks/${taskId}/pull-requests`,
+						{ repo_id: repoId, title, head_branch, base_branch, body: body ?? "" },
+					);
+					return textResult(
+						`Pull request created successfully:\n\n#${pr.pr_number} ${pr.title}\nState: ${pr.state}\nAuthor: ${pr.author}\nHead: ${pr.head_branch} → Base: ${pr.base_branch}\nURL: ${pr.html_url}`,
+					);
 				}
 
 				// ── Branches ───────────────────────────────────────────────────
@@ -478,7 +516,7 @@ const entry: PluginMCPEntry = {
 							source_branch?: string;
 						};
 					const result = await api.pluginPost<CreateBranchResult>(
-						`projects/${projectId}/tasks/${taskId}/github/branches`,
+						`projects/${projectId}/tasks/${taskId}/branches`,
 						{ repo_id: repoId, branch_name, source_branch },
 					);
 					return textResult(
@@ -492,7 +530,7 @@ const entry: PluginMCPEntry = {
 						taskId: string;
 					};
 					const branches = await api.pluginGet<TaskBranch[]>(
-						`projects/${projectId}/tasks/${taskId}/github/branches`,
+						`projects/${projectId}/tasks/${taskId}/branches`,
 					);
 					return textResult(
 						`Branches:\n\n${formatList(branches, formatBranch)}`,

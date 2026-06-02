@@ -67,12 +67,12 @@ export interface AccessibleRepo {
 export interface LinkedRepository {
   id: string;
   project_id: string;
-  integration_id: string;
   owner: string;
   repo_name: string;
   full_name: string;
   default_branch: string;
-  webhook_id: number;
+  clone_url: string;
+  webhook_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -128,26 +128,26 @@ export const taskBranchesKey = (projectId: string, taskId: string) =>
 export async function getGitHubIntegration(
   api: PluginApiClient,
 ): Promise<GitHubIntegration> {
-  return api.pluginGet<GitHubIntegration>(PLUGIN_ID, `/projects/${api.projectId}/github`);
+  return api.pluginGet<GitHubIntegration>(PLUGIN_ID, `/projects/${api.projectId}/integration`);
 }
 
 export async function setGitHubToken(
   api: PluginApiClient,
   token: string,
 ): Promise<GitHubIntegration> {
-  return api.pluginPost<GitHubIntegration>(PLUGIN_ID, `/projects/${api.projectId}/github/token`, {
+  return api.pluginPost<GitHubIntegration>(PLUGIN_ID, `/projects/${api.projectId}/integration/token`, {
     token,
   });
 }
 
 export async function deleteGitHubToken(api: PluginApiClient): Promise<void> {
-  return api.pluginDelete(PLUGIN_ID, `/projects/${api.projectId}/github/token`);
+  return api.pluginDelete(PLUGIN_ID, `/projects/${api.projectId}/integration/token`);
 }
 
 export async function listAccessibleRepos(
   api: PluginApiClient,
 ): Promise<AccessibleRepo[]> {
-  return api.pluginGet<AccessibleRepo[]>(PLUGIN_ID, `/projects/${api.projectId}/github/repositories`);
+  return api.pluginGet<AccessibleRepo[]>(PLUGIN_ID, `/projects/${api.projectId}/integration/accessible-repos`);
 }
 
 export async function linkRepository(
@@ -157,7 +157,7 @@ export async function linkRepository(
 ): Promise<LinkedRepository> {
   return api.pluginPost<LinkedRepository>(
     PLUGIN_ID,
-    `/projects/${api.projectId}/github/linked-repositories`,
+    `/projects/${api.projectId}/repositories`,
     { owner, repo_name: repoName },
   );
 }
@@ -167,7 +167,7 @@ export async function listLinkedRepositories(
 ): Promise<LinkedRepository[]> {
   return api.pluginGet<LinkedRepository[]>(
     PLUGIN_ID,
-    `/projects/${api.projectId}/github/linked-repositories`,
+    `/projects/${api.projectId}/repositories`,
   );
 }
 
@@ -177,7 +177,7 @@ export async function unlinkRepository(
 ): Promise<void> {
   return api.pluginDelete(
     PLUGIN_ID,
-    `/projects/${api.projectId}/github/linked-repositories/${repoId}`,
+    `/projects/${api.projectId}/repositories/${repoId}`,
   );
 }
 
@@ -187,7 +187,7 @@ export async function listTaskPRs(
 ): Promise<PullRequest[]> {
   return api.pluginGet<PullRequest[]>(
     PLUGIN_ID,
-    `/projects/${api.projectId}/tasks/${taskId}/github/pull-requests`,
+    `/projects/${api.projectId}/tasks/${taskId}/pull-requests`,
   );
 }
 
@@ -199,7 +199,7 @@ export async function linkPRToTask(
 ): Promise<PullRequest> {
   return api.pluginPost<PullRequest>(
     PLUGIN_ID,
-    `/projects/${api.projectId}/tasks/${taskId}/github/pull-requests`,
+    `/projects/${api.projectId}/tasks/${taskId}/pull-requests/link`,
     { repo_id: repoId, pr_number: prNumber },
   );
 }
@@ -211,7 +211,7 @@ export async function unlinkPRFromTask(
 ): Promise<void> {
   return api.pluginDelete(
     PLUGIN_ID,
-    `/projects/${api.projectId}/tasks/${taskId}/github/pull-requests/${prId}`,
+    `/projects/${api.projectId}/tasks/${taskId}/pull-requests/${prId}`,
   );
 }
 
@@ -221,7 +221,7 @@ export async function listTaskBranches(
 ): Promise<TaskBranch[]> {
   return api.pluginGet<TaskBranch[]>(
     PLUGIN_ID,
-    `/projects/${api.projectId}/tasks/${taskId}/github/branches`,
+    `/projects/${api.projectId}/tasks/${taskId}/branches`,
   );
 }
 
@@ -234,7 +234,7 @@ export async function createBranch(
 ): Promise<CreateBranchResult> {
   return api.pluginPost<CreateBranchResult>(
     PLUGIN_ID,
-    `/projects/${api.projectId}/tasks/${taskId}/github/branches`,
+    `/projects/${api.projectId}/tasks/${taskId}/branches`,
     { repo_id: repoId, branch_name: branchName, source_branch: sourceBranch },
   );
 }

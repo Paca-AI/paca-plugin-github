@@ -11,7 +11,6 @@ import (
 	"time"
 
 	plugin "github.com/Paca-AI/plugin-sdk-go"
-	"github.com/google/uuid"
 )
 
 // branchTaskRefRe matches a task-ID prefix in a branch name (e.g. "PROJ-42").
@@ -114,41 +113,24 @@ func (p *githubPlugin) handlePREvent(repoID, projectID string, payload []byte) e
 		mergedAtStr = &s
 	}
 
-	// Check if PR already cached.
-	existResult, err := p.db.Query(
-		`SELECT id, created_at FROM github_pull_requests WHERE repo_id = $1 AND pr_number = $2`,
-		repoID, gh.Number,
-	)
-	if err != nil {
-		p.log.Error("github: failed to check existing PR: " + err.Error() + ", repo_id=" + repoID + ", pr_number=" + strconv.Itoa(gh.Number))
-		return err
-	}
-	var prID string
-	var prCreatedAt string
-	if existResult != nil && len(existResult.Rows) > 0 {
-		eSc := newRowScanner(existResult.Columns, existResult.Rows[0])
-		prID = eSc.str("id")
-		prCreatedAt = eSc.str("created_at")
-		p.log.Info("github: PR already cached, updating, pr_id=" + prID + ", pr_number=" + strconv.Itoa(gh.Number))
-	} else {
-		prID = uuid.New().String()
-		prCreatedAt = now
-		p.log.Info("github: PR not cached, inserting, pr_id=" + prID + ", pr_number=" + strconv.Itoa(gh.Number))
-	}
-
-	// Upsert the PR cache.
-	_, err = p.db.Exec(`
+	// Upsert the PR cache; let PostgreSQL generate id on insert, RETURNING gives us the id.
+	upserted, err := p.db.Query(`
 		INSERT INTO github_pull_requests
-			(id, project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			(project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (repo_id, pr_number) DO UPDATE SET
-			title=$6, state=$7, html_url=$8, head_branch=$9, base_branch=$10,
-			author=$11, merged_at=$12, updated_at=$14
-	`, prID, projectID, repoID, gh.Number, gh.ID, gh.Title, state,
-		gh.HTMLURL, gh.Head.Ref, gh.Base.Ref, gh.User.Login, mergedAtStr, prCreatedAt, now)
+			title=$5, state=$6, html_url=$7, head_branch=$8, base_branch=$9,
+			author=$10, merged_at=$11, updated_at=$13
+		RETURNING id
+	`, projectID, repoID, gh.Number, gh.ID, gh.Title, state,
+		gh.HTMLURL, gh.Head.Ref, gh.Base.Ref, gh.User.Login, mergedAtStr, now, now)
 	if err != nil {
 		p.log.Error("github: failed to upsert PR: " + err.Error() + ", repo_id=" + repoID + ", pr_number=" + strconv.Itoa(gh.Number))
 		return err
+	}
+	var prID string
+	if len(upserted.Rows) > 0 {
+		prID = newRowScanner(upserted.Columns, upserted.Rows[0]).str("id")
 	}
 
 	p.log.Info("github: PR saved successfully, pr_id=" + prID + ", pr_number=" + strconv.Itoa(gh.Number) + ", action=" + event.Action)
@@ -161,12 +143,11 @@ func (p *githubPlugin) handlePREvent(repoID, projectID string, payload []byte) e
 		)
 		if brResult != nil && len(brResult.Rows) > 0 {
 			taskID := newRowScanner(brResult.Columns, brResult.Rows[0]).str("task_id")
-			linkID := uuid.New().String()
 			_, _ = p.db.Exec(`
-				INSERT INTO github_task_pr_links (id, task_id, pull_request_id, created_at)
-				VALUES ($1,$2,$3,$4)
+				INSERT INTO github_task_pr_links (task_id, pull_request_id, created_at)
+				VALUES ($1,$2,$3)
 				ON CONFLICT (task_id, pull_request_id) DO NOTHING
-			`, linkID, taskID, prID, now)
+			`, taskID, prID, now)
 
 			plugin.EmitEvent("github.pr_linked", map[string]any{
 				"project_id": projectID,
@@ -229,12 +210,11 @@ func (p *githubPlugin) handlePushEvent(repoID, projectID string, payload []byte)
 	taskID := newRowScanner(taskResult.Columns, taskResult.Rows[0]).str("id")
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	branchID := uuid.New().String()
 	_, _ = p.db.Exec(`
-		INSERT INTO github_task_branches (id, task_id, repo_id, branch_name, created_at)
-		VALUES ($1,$2,$3,$4,$5)
+		INSERT INTO github_task_branches (task_id, repo_id, branch_name, created_at)
+		VALUES ($1,$2,$3,$4)
 		ON CONFLICT (task_id, repo_id, branch_name) DO NOTHING
-	`, branchID, taskID, repoID, branchName, now)
+	`, taskID, repoID, branchName, now)
 
 	plugin.EmitEvent("github.branch_linked", map[string]any{
 		"project_id":  projectID,

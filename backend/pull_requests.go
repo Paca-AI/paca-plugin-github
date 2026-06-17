@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	plugin "github.com/Paca-AI/plugin-sdk-go"
-	"github.com/google/uuid"
 )
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -135,50 +134,41 @@ func (p *githubPlugin) linkPRToTask(req *plugin.Request, res *plugin.Response) {
 
 	now := nowStr()
 
-	// Check if PR already cached.
-	existResult, _ := p.db.Query(
-		`SELECT id, created_at FROM github_pull_requests WHERE repo_id = $1 AND pr_number = $2`,
-		b.RepoID, b.PRNumber,
-	)
-	var prID string
-	var prCreatedAt string
-	if existResult != nil && len(existResult.Rows) > 0 {
-		eSc := newRowScanner(existResult.Columns, existResult.Rows[0])
-		prID = eSc.str("id")
-		prCreatedAt = eSc.str("created_at")
-	} else {
-		prID = uuid.New().String()
-		prCreatedAt = now
-	}
-
 	var mergedAtStr *string
 	if ghPR.MergedAt != nil {
 		s := ghPR.MergedAt.UTC().Format("2006-01-02T15:04:05.999999999Z")
 		mergedAtStr = &s
 	}
 
-	// Upsert the PR cache.
-	_, err = p.db.Exec(`
+	// Upsert the PR cache; let PostgreSQL generate id on insert, RETURNING gives us id+created_at.
+	upserted, err := p.db.Query(`
 		INSERT INTO github_pull_requests
-			(id, project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			(project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (repo_id, pr_number) DO UPDATE SET
-			title=$6, state=$7, html_url=$8, head_branch=$9, base_branch=$10,
-			author=$11, merged_at=$12, updated_at=$14
-	`, prID, projectID, b.RepoID, b.PRNumber, ghPR.ID, ghPR.Title, state,
-		ghPR.HTMLURL, ghPR.Head.Ref, ghPR.Base.Ref, ghPR.User.Login, mergedAtStr, prCreatedAt, now)
-	if err != nil {
-		apiError(res, 500, "INTERNAL_ERROR", err.Error())
+			title=$5, state=$6, html_url=$7, head_branch=$8, base_branch=$9,
+			author=$10, merged_at=$11, updated_at=$13
+		RETURNING id, created_at
+	`, projectID, b.RepoID, b.PRNumber, ghPR.ID, ghPR.Title, state,
+		ghPR.HTMLURL, ghPR.Head.Ref, ghPR.Base.Ref, ghPR.User.Login, mergedAtStr, now, now)
+	if err != nil || len(upserted.Rows) == 0 {
+		if err != nil {
+			apiError(res, 500, "INTERNAL_ERROR", err.Error())
+		} else {
+			apiError(res, 500, "INTERNAL_ERROR", "upsert returned no rows")
+		}
 		return
 	}
+	prSc := newRowScanner(upserted.Columns, upserted.Rows[0])
+	prID := prSc.str("id")
+	prCreatedAt := prSc.str("created_at")
 
 	// Link the PR to the task.
-	linkID := uuid.New().String()
 	rowsAffected, lErr := p.db.Exec(`
-		INSERT INTO github_task_pr_links (id, task_id, pull_request_id, created_at)
-		VALUES ($1,$2,$3,$4)
+		INSERT INTO github_task_pr_links (task_id, pull_request_id, created_at)
+		VALUES ($1,$2,$3)
 		ON CONFLICT (task_id, pull_request_id) DO NOTHING
-	`, linkID, taskID, prID, now)
+	`, taskID, prID, now)
 	if lErr != nil {
 		apiError(res, 500, "INTERNAL_ERROR", lErr.Error())
 		return
@@ -279,7 +269,6 @@ func (p *githubPlugin) createPullRequest(req *plugin.Request, res *plugin.Respon
 	}
 
 	now := nowStr()
-	prID := uuid.New().String()
 
 	var mergedAtStr *string
 	if ghPR.MergedAt != nil {
@@ -287,26 +276,31 @@ func (p *githubPlugin) createPullRequest(req *plugin.Request, res *plugin.Respon
 		mergedAtStr = &s
 	}
 
-	_, err = p.db.Exec(`
+	upserted, err := p.db.Query(`
 		INSERT INTO github_pull_requests
-			(id, project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
+			(project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)
 		ON CONFLICT (repo_id, pr_number) DO UPDATE SET
-			title=$6, state=$7, html_url=$8, head_branch=$9, base_branch=$10,
-			author=$11, merged_at=$12, updated_at=$13
-	`, prID, projectID, b.RepoID, ghPR.Number, ghPR.ID, ghPR.Title, state,
+			title=$5, state=$6, html_url=$7, head_branch=$8, base_branch=$9,
+			author=$10, merged_at=$11, updated_at=$12
+		RETURNING id
+	`, projectID, b.RepoID, ghPR.Number, ghPR.ID, ghPR.Title, state,
 		ghPR.HTMLURL, ghPR.Head.Ref, ghPR.Base.Ref, ghPR.User.Login, mergedAtStr, now)
-	if err != nil {
-		apiError(res, 500, "INTERNAL_ERROR", err.Error())
+	if err != nil || len(upserted.Rows) == 0 {
+		if err != nil {
+			apiError(res, 500, "INTERNAL_ERROR", err.Error())
+		} else {
+			apiError(res, 500, "INTERNAL_ERROR", "upsert returned no rows")
+		}
 		return
 	}
+	prID := newRowScanner(upserted.Columns, upserted.Rows[0]).str("id")
 
-	linkID := uuid.New().String()
 	_, lErr := p.db.Exec(`
-		INSERT INTO github_task_pr_links (id, task_id, pull_request_id, created_at)
-		VALUES ($1,$2,$3,$4)
+		INSERT INTO github_task_pr_links (task_id, pull_request_id, created_at)
+		VALUES ($1,$2,$3)
 		ON CONFLICT (task_id, pull_request_id) DO NOTHING
-	`, linkID, taskID, prID, now)
+	`, taskID, prID, now)
 	if lErr != nil {
 		p.log.Error("failed to link PR to task: " + lErr.Error())
 	}

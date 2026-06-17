@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	plugin "github.com/Paca-AI/plugin-sdk-go"
-	"github.com/google/uuid"
 )
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -86,12 +85,11 @@ func (p *githubPlugin) createBranch(req *plugin.Request, res *plugin.Response) {
 
 	// Link the branch to the task.
 	now := nowStr()
-	branchID := uuid.New().String()
 	rowsAffected, dbErr := p.db.Exec(`
-		INSERT INTO github_task_branches (id, task_id, repo_id, branch_name, created_at)
-		VALUES ($1,$2,$3,$4,$5)
+		INSERT INTO github_task_branches (task_id, repo_id, branch_name, created_at)
+		VALUES ($1,$2,$3,$4)
 		ON CONFLICT (task_id, repo_id, branch_name) DO NOTHING
-	`, branchID, taskID, b.RepoID, b.BranchName, now)
+	`, taskID, b.RepoID, b.BranchName, now)
 	if dbErr != nil {
 		p.log.Error("failed to link branch to task: " + dbErr.Error())
 	} else if rowsAffected == 0 {

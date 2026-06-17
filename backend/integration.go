@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	plugin "github.com/Paca-AI/plugin-sdk-go"
-	"github.com/google/uuid"
 )
 
 // ─── DTOs ────────────────────────────────────────────────────────────────────
@@ -358,17 +357,22 @@ func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response)
 	}
 
 	now := nowStr()
-	repoID := uuid.New().String()
-	_, dbErr := p.db.Exec(`
+	inserted, dbErr := p.db.Query(`
 		INSERT INTO github_repositories
-			(id, project_id, integration_id, owner, repo_name, full_name, webhook_id, webhook_secret_enc, default_branch, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
-	`, repoID, projectID, integrationID, ghRepo.Owner.Login, ghRepo.Name, ghRepo.FullName, webhookID, encSecret, ghRepo.DefaultBranch, now)
-	if dbErr != nil {
+			(project_id, integration_id, owner, repo_name, full_name, webhook_id, webhook_secret_enc, default_branch, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)
+		RETURNING id
+	`, projectID, integrationID, ghRepo.Owner.Login, ghRepo.Name, ghRepo.FullName, webhookID, encSecret, ghRepo.DefaultBranch, now)
+	if dbErr != nil || len(inserted.Rows) == 0 {
 		_ = ghc.deleteWebhook(context.Background(), ghRepo.Owner.Login, ghRepo.Name, webhookID)
-		apiError(res, 500, "INTERNAL_ERROR", dbErr.Error())
+		if dbErr != nil {
+			apiError(res, 500, "INTERNAL_ERROR", dbErr.Error())
+		} else {
+			apiError(res, 500, "INTERNAL_ERROR", "insert returned no rows")
+		}
 		return
 	}
+	repoID := newRowScanner(inserted.Columns, inserted.Rows[0]).str("id")
 
 	created(res, repositoryResponse{
 		ID:            repoID,

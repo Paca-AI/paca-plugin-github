@@ -301,19 +301,19 @@ function TokenCard({
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Add a GitHub personal access token with{" "}
-        <code className="rounded bg-muted px-1 py-0.5 text-[11px] font-mono">
+        <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
           repo
         </code>{" "}
         (includes{" "}
-        <code className="rounded bg-muted px-1 py-0.5 text-[11px] font-mono">
+        <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
           contents
         </code>{" "}
         and{" "}
-        <code className="rounded bg-muted px-1 py-0.5 text-[11px] font-mono">
+        <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
           pull requests
         </code>{" "}
         permissions) and the{" "}
-        <code className="rounded bg-muted px-1 py-0.5 text-[11px] font-mono">
+        <code className="rounded bg-muted px-1 py-0.5 text-xs font-mono">
           admin:repo_hook
         </code>{" "}
         scope to link repositories, create branches, and track pull requests.
@@ -340,7 +340,7 @@ function TokenCard({
           />
           <button
             type="button"
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-muted-foreground text-[10px] font-medium"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-muted-foreground text-xs font-medium"
             onClick={() => setShowToken((v) => !v)}
             tabIndex={-1}
           >
@@ -525,7 +525,7 @@ function AddRepoDialog({
                         {repo.full_name}
                       </span>
                       {repo.private && (
-                        <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-muted text-muted-foreground">
+                        <span className="shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold bg-muted text-muted-foreground">
                           Private
                         </span>
                       )}
@@ -738,7 +738,7 @@ function GitHubSettingsInner({
             <div key={step.num} className="flex items-center gap-3">
               <div
                 className={cn(
-                  "flex size-6 items-center justify-center rounded-full text-[11px] font-bold shrink-0 transition-colors",
+                  "flex size-6 items-center justify-center rounded-full text-xs font-bold shrink-0 transition-colors",
                   step.done
                     ? "bg-emerald-500 text-white"
                     : "border-2 border-border text-muted-foreground/60",
@@ -765,7 +765,7 @@ function GitHubSettingsInner({
         <div className="space-y-4">
           <div className="flex items-center gap-2">
             <KeyRound className="size-3.5 text-muted-foreground/70" />
-            <label className="text-[13px] font-semibold text-foreground/80">
+            <label className="text-sm font-semibold text-foreground/80">
               Personal Access Token
             </label>
           </div>

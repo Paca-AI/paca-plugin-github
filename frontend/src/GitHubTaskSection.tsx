@@ -47,7 +47,7 @@ function cn(...classes: (string | undefined | null | false)[]): string {
 function PRStateBadge({ state }: { state: PullRequest["state"] }) {
   if (state === "merged") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold text-violet-500">
+      <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/15 px-2 py-0.5 text-xs font-semibold text-violet-500">
         <GitMerge className="size-3" />
         Merged
       </span>
@@ -55,14 +55,14 @@ function PRStateBadge({ state }: { state: PullRequest["state"] }) {
   }
   if (state === "closed") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-[10px] font-semibold text-destructive/80">
+      <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive/80">
         <GitPullRequestClosed className="size-3" />
         Closed
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-500">
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-500">
       <GitPullRequest className="size-3" />
       Open
     </span>
@@ -111,17 +111,17 @@ function PRRow({
           <ExternalLink className="size-3 shrink-0 opacity-50" />
         </a>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
-          <span className="text-[11px] text-muted-foreground font-mono">
+          <span className="text-xs text-muted-foreground font-mono">
             #{pr.pr_number}
           </span>
           <span className="text-muted-foreground/40">·</span>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {pr.head_branch}
           </span>
           {pr.author && (
             <>
               <span className="text-muted-foreground/40">·</span>
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 by {pr.author}
               </span>
             </>
@@ -264,7 +264,7 @@ function LinkPRForm({
     <div className="space-y-3 rounded-lg border border-border/50 bg-card px-3 py-3">
       {/* Repository selector */}
       <div>
-        <p className="text-[11px] text-muted-foreground mb-1">Repository</p>
+        <p className="text-xs text-muted-foreground mb-1">Repository</p>
         <select
           value={parsed ? (urlMatchedRepo?.id ?? "") : selectedRepoId}
           onChange={(e) => {
@@ -285,7 +285,7 @@ function LinkPRForm({
 
       {/* PR number or URL */}
       <div>
-        <p className="text-[11px] text-muted-foreground mb-1">
+        <p className="text-xs text-muted-foreground mb-1">
           PR number or GitHub URL
         </p>
         <input
@@ -309,7 +309,7 @@ function LinkPRForm({
           disabled={mutation.isPending}
         />
         {parsed && urlMatchedRepo && (
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-xs text-muted-foreground">
             Will link PR #{parsed.prNumber} from{" "}
             <span className="font-medium">{urlMatchedRepo.full_name}</span>
           </p>
@@ -317,7 +317,7 @@ function LinkPRForm({
       </div>
 
       {error && (
-        <p className="text-[11px] text-destructive/80 leading-relaxed">
+        <p className="text-xs text-destructive/80 leading-relaxed">
           {error}
         </p>
       )}
@@ -384,13 +384,13 @@ function PullRequestsSection({
     <div>
       <button
         type="button"
-        className="flex w-full items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-3 hover:text-muted-foreground transition-colors"
+        className="flex w-full items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-3 hover:text-muted-foreground transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
         <GitPullRequest className="size-3.5 shrink-0" />
         <span>Pull Requests</span>
         {count > 0 && (
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground normal-case tracking-normal">
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-bold text-muted-foreground normal-case tracking-normal">
             {count}
           </span>
         )}
@@ -491,7 +491,7 @@ function CommandBlock({ command }: { command: string }) {
   return (
     <div className="flex items-center gap-2 rounded-md bg-muted/60 border border-border/50 px-3 py-2 mt-1.5">
       <Terminal className="size-3.5 shrink-0 text-muted-foreground/50" />
-      <code className="flex-1 text-[11px] font-mono text-foreground/80 break-all">
+      <code className="flex-1 text-xs font-mono text-foreground/80 break-all">
         {command}
       </code>
       <CopyButton text={command} />
@@ -507,7 +507,7 @@ function BranchRow({ branch }: { branch: TaskBranch }) {
     <div className="rounded-lg border border-border/50 bg-card px-3 py-2.5 space-y-1.5">
       <div className="flex items-center gap-2">
         <GitBranch className="size-3.5 shrink-0 text-muted-foreground/60" />
-        <span className="text-[12px] font-mono truncate text-foreground/90 flex-1">
+        <span className="text-xs font-mono truncate text-foreground/90 flex-1">
           {branch.branch_name}
         </span>
       </div>
@@ -642,7 +642,7 @@ function CreateBranchForm({
     <div className="space-y-3 rounded-lg border border-border/50 bg-card px-3 py-3">
       {/* Branch type pills */}
       <div>
-        <p className="text-[11px] text-muted-foreground mb-1.5">Type</p>
+        <p className="text-xs text-muted-foreground mb-1.5">Type</p>
         <div className="flex flex-wrap gap-1.5">
           {BRANCH_TYPES.map((t) => (
             <button
@@ -650,7 +650,7 @@ function CreateBranchForm({
               type="button"
               onClick={() => handleTypeChange(t)}
               className={cn(
-                "rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-colors",
+                "rounded-full px-2.5 py-0.5 text-xs font-medium border transition-colors",
                 t === type
                   ? "border-primary/60 bg-primary/10 text-primary"
                   : "border-border/50 text-muted-foreground hover:border-border",
@@ -664,7 +664,7 @@ function CreateBranchForm({
 
       {/* Branch name */}
       <div>
-        <p className="text-[11px] text-muted-foreground mb-1">Branch name</p>
+        <p className="text-xs text-muted-foreground mb-1">Branch name</p>
         <input
           type="text"
           value={branchName}
@@ -681,7 +681,7 @@ function CreateBranchForm({
       {/* Repo selector — only when multiple repos */}
       {repos.length > 1 && (
         <div>
-          <p className="text-[11px] text-muted-foreground mb-1">Repository</p>
+          <p className="text-xs text-muted-foreground mb-1">Repository</p>
           <select
             value={selectedRepoId}
             onChange={(e) => setSelectedRepoId(e.target.value)}
@@ -699,7 +699,7 @@ function CreateBranchForm({
 
       {/* Source branch (optional) */}
       <div>
-        <p className="text-[11px] text-muted-foreground mb-1">
+        <p className="text-xs text-muted-foreground mb-1">
           Source branch{" "}
           <span className="opacity-60">(optional, defaults to repo default)</span>
         </p>
@@ -714,7 +714,7 @@ function CreateBranchForm({
       </div>
 
       {error && (
-        <p className="text-[11px] text-destructive/80 leading-relaxed">
+        <p className="text-xs text-destructive/80 leading-relaxed">
           {error}
         </p>
       )}
@@ -736,7 +736,7 @@ function CreateBranchForm({
         </button>
 
         <div>
-          <p className="text-[11px] text-muted-foreground mb-0.5">
+          <p className="text-xs text-muted-foreground mb-0.5">
             Or create locally:
           </p>
           <CommandBlock command={localCmd} />
@@ -797,13 +797,13 @@ function BranchesSection({
     <div>
       <button
         type="button"
-        className="flex w-full items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-3 hover:text-muted-foreground transition-colors"
+        className="flex w-full items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground/70 mb-3 hover:text-muted-foreground transition-colors"
         onClick={() => setExpanded((v) => !v)}
       >
         <GitBranch className="size-3.5 shrink-0" />
         <span>Branches</span>
         {count > 0 && (
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground normal-case tracking-normal">
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-bold text-muted-foreground normal-case tracking-normal">
             {count}
           </span>
         )}

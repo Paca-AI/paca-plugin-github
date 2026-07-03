@@ -44,6 +44,29 @@ interface PullRequest {
 	created_at: string;
 }
 
+interface PullRequestDetails {
+	owner: string;
+	repo_name: string;
+	pr_number: number;
+	title: string;
+	state: string;
+	body: string;
+	html_url: string;
+	diff: string;
+}
+
+interface CICheck {
+	name: string;
+	status: string;
+	conclusion: string;
+	url: string;
+}
+
+interface PullRequestCIStatus {
+	state: string;
+	checks: CICheck[];
+}
+
 interface TaskBranch {
 	id: string;
 	task_id: string;
@@ -105,6 +128,26 @@ URL: ${pr.html_url}
 Head Branch: ${pr.head_branch}
 Created: ${pr.created_at}
 Merged: ${pr.merged_at ? `Yes (${pr.merged_at})` : "No"}`;
+}
+
+function formatPullRequestDetails(pr: PullRequestDetails): string {
+	return `Pull Request: #${pr.pr_number} - ${pr.title} (${pr.owner}/${pr.repo_name})
+State: ${pr.state}
+URL: ${pr.html_url}
+Description: ${pr.body || "(none)"}
+
+Diff:
+${pr.diff || "(no changes)"}`;
+}
+
+function formatCIStatus(ci: PullRequestCIStatus): string {
+	if (ci.checks.length === 0) {
+		return "CI status: unknown (no checks found for this commit).";
+	}
+	const checkLines = ci.checks
+		.map((c) => `- ${c.name}: ${c.status}${c.conclusion ? ` (${c.conclusion})` : ""}`)
+		.join("\n");
+	return `CI status: ${ci.state}\n\n${checkLines}`;
 }
 
 function formatBranch(branch: TaskBranch): string {
@@ -319,6 +362,95 @@ const tools: Tool[] = [
 			required: ["projectId", "taskId", "repoId", "title", "head_branch", "base_branch"],
 		},
 	},
+	{
+		name: "github_get_pull_request",
+		description:
+			"Fetch a pull request's title, description, state, and diff so it can be reviewed.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				projectId: projectIdProp,
+				taskId: taskIdProp,
+				prId: {
+					type: "string",
+					description:
+						UUID_DESC.replace("%s", "linked pull request") +
+						" Use github_list_task_prs to get the PR ID.",
+				},
+			},
+			required: ["projectId", "taskId", "prId"],
+		},
+	},
+	{
+		name: "github_get_pull_request_ci_status",
+		description:
+			"Get the CI/check status for a pull request's latest commit (e.g. GitHub Actions runs, other check runs, and legacy commit statuses). Returns an overall state (success, failure, pending, or unknown) plus the individual checks.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				projectId: projectIdProp,
+				taskId: taskIdProp,
+				prId: {
+					type: "string",
+					description:
+						UUID_DESC.replace("%s", "linked pull request") +
+						" Use github_list_task_prs to get the PR ID.",
+				},
+			},
+			required: ["projectId", "taskId", "prId"],
+		},
+	},
+	{
+		name: "github_comment_pull_request",
+		description: "Add a general (non-review) comment to a pull request.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				projectId: projectIdProp,
+				taskId: taskIdProp,
+				prId: {
+					type: "string",
+					description:
+						UUID_DESC.replace("%s", "linked pull request") +
+						" Use github_list_task_prs to get the PR ID.",
+				},
+				body: {
+					type: "string",
+					description: "The comment text.",
+				},
+			},
+			required: ["projectId", "taskId", "prId", "body"],
+		},
+	},
+	{
+		name: "github_review_pull_request",
+		description:
+			"Submit a formal review on a pull request (approve, request changes, or comment). Call github_get_pull_request first to see the diff.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				projectId: projectIdProp,
+				taskId: taskIdProp,
+				prId: {
+					type: "string",
+					description:
+						UUID_DESC.replace("%s", "linked pull request") +
+						" Use github_list_task_prs to get the PR ID.",
+				},
+				event: {
+					type: "string",
+					enum: ["APPROVE", "REQUEST_CHANGES", "COMMENT"],
+					description: "The review verdict.",
+				},
+				body: {
+					type: "string",
+					description:
+						"Review summary (required for REQUEST_CHANGES and COMMENT).",
+				},
+			},
+			required: ["projectId", "taskId", "prId", "event"],
+		},
+	},
 	// ── Branches ─────────────────────────────────────────────────────────────
 	{
 		name: "github_create_branch",
@@ -503,6 +635,59 @@ const entry: PluginMCPEntry = {
 					return textResult(
 						`Pull request created successfully:\n\n#${pr.pr_number} ${pr.title}\nState: ${pr.state}\nAuthor: ${pr.author}\nHead: ${pr.head_branch} → Base: ${pr.base_branch}\nURL: ${pr.html_url}`,
 					);
+				}
+
+				case "github_get_pull_request": {
+					const { projectId, taskId, prId } = args as {
+						projectId: string;
+						taskId: string;
+						prId: string;
+					};
+					const pr = await api.pluginGet<PullRequestDetails>(
+						`projects/${projectId}/tasks/${taskId}/pull-requests/${prId}`,
+					);
+					return textResult(formatPullRequestDetails(pr));
+				}
+
+				case "github_get_pull_request_ci_status": {
+					const { projectId, taskId, prId } = args as {
+						projectId: string;
+						taskId: string;
+						prId: string;
+					};
+					const ci = await api.pluginGet<PullRequestCIStatus>(
+						`projects/${projectId}/tasks/${taskId}/pull-requests/${prId}/ci-status`,
+					);
+					return textResult(formatCIStatus(ci));
+				}
+
+				case "github_comment_pull_request": {
+					const { projectId, taskId, prId, body } = args as {
+						projectId: string;
+						taskId: string;
+						prId: string;
+						body: string;
+					};
+					await api.pluginPost(
+						`projects/${projectId}/tasks/${taskId}/pull-requests/${prId}/comments`,
+						{ body },
+					);
+					return textResult("Comment posted successfully.");
+				}
+
+				case "github_review_pull_request": {
+					const { projectId, taskId, prId, event, body } = args as {
+						projectId: string;
+						taskId: string;
+						prId: string;
+						event: string;
+						body?: string;
+					};
+					await api.pluginPost(
+						`projects/${projectId}/tasks/${taskId}/pull-requests/${prId}/reviews`,
+						{ event, body: body ?? "" },
+					);
+					return textResult("Review submitted successfully.");
 				}
 
 				// ── Branches ───────────────────────────────────────────────────

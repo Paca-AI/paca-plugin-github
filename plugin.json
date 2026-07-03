@@ -2,7 +2,7 @@
   "id": "com.paca.github",
   "displayName": "GitHub Integration",
   "description": "Integrates GitHub repositories, pull requests, and branches with Paca projects and tasks.",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "capabilities": ["repository"],
   "permissions": ["db.read", "db.write"],
   "backend": {
@@ -155,6 +155,58 @@
       {
         "method": "DELETE",
         "path": "/projects/:projectId/tasks/:taskId/pull-requests/:prId",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.write"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/projects/:projectId/tasks/:taskId/pull-requests/:prId",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.read"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/projects/:projectId/tasks/:taskId/pull-requests/:prId/ci-status",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.read"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/projects/:projectId/tasks/:taskId/pull-requests/:prId/comments",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.write"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/projects/:projectId/tasks/:taskId/pull-requests/:prId/reviews",
         "middlewares": [
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },

@@ -51,6 +51,10 @@ func (p *githubPlugin) Init(ctx *plugin.Context) error {
 	ctx.Route("POST", "/tasks/:taskId/pull-requests", p.createPullRequest)
 	ctx.Route("POST", "/tasks/:taskId/pull-requests/link", p.linkPRToTask)
 	ctx.Route("DELETE", "/tasks/:taskId/pull-requests/:prId", p.unlinkPRFromTask)
+	ctx.Route("GET", "/tasks/:taskId/pull-requests/:prId", p.getPullRequestDetails)
+	ctx.Route("GET", "/tasks/:taskId/pull-requests/:prId/ci-status", p.getPullRequestCIStatus)
+	ctx.Route("POST", "/tasks/:taskId/pull-requests/:prId/comments", p.addPullRequestComment)
+	ctx.Route("POST", "/tasks/:taskId/pull-requests/:prId/reviews", p.createReview)
 	ctx.Route("GET", "/tasks/:taskId/branches", p.listTaskBranches)
 	ctx.Route("POST", "/tasks/:taskId/branches", p.createBranch)
 

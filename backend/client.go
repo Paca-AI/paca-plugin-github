@@ -36,6 +36,7 @@ type ghPullRequest struct {
 	HTMLURL string `json:"html_url"`
 	Head    struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha"`
 	} `json:"head"`
 	Base struct {
 		Ref string `json:"ref"`
@@ -45,6 +46,30 @@ type ghPullRequest struct {
 	} `json:"user"`
 	Merged   bool       `json:"merged"`
 	MergedAt *time.Time `json:"merged_at"`
+}
+
+// ghCombinedStatus is the response of GET /commits/{ref}/status — the legacy
+// Status API used by CI integrations that post plain commit statuses rather
+// than check runs (e.g. classic CircleCI/Travis integrations).
+type ghCombinedStatus struct {
+	State    string `json:"state"` // "pending" | "success" | "failure" | "error"
+	Statuses []struct {
+		Context     string `json:"context"`
+		State       string `json:"state"`
+		Description string `json:"description"`
+		TargetURL   string `json:"target_url"`
+	} `json:"statuses"`
+}
+
+// ghCheckRunsResponse is the response of GET /commits/{ref}/check-runs — the
+// modern Checks API used by GitHub Actions and most GitHub Apps.
+type ghCheckRunsResponse struct {
+	CheckRuns []struct {
+		Name       string  `json:"name"`
+		Status     string  `json:"status"`     // "queued" | "in_progress" | "completed"
+		Conclusion *string `json:"conclusion"` // "success" | "failure" | ... | null while not completed
+		HTMLURL    string  `json:"html_url"`
+	} `json:"check_runs"`
 }
 
 // ghAPIError carries a non-2xx HTTP status and the GitHub error message.
@@ -299,6 +324,64 @@ func (c *ghClient) createPullRequest(ctx context.Context, owner, repo, title, he
 		return nil, err
 	}
 	return &pr, nil
+}
+
+// getPullRequestDiff fetches the unified diff for a pull request via GitHub's
+// diff media type. Unlike get(), the response body is raw diff text, not
+// JSON, so it bypasses get()'s json.Unmarshal step.
+func (c *ghClient) getPullRequestDiff(_ context.Context, owner, repo string, prNumber int) (string, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", ghBaseURL, owner, repo, prNumber)
+	hdrs := c.headers()
+	hdrs["Accept"] = "application/vnd.github.v3.diff"
+	resp, err := plugin.Fetch("GET", url, hdrs, "")
+	if err != nil {
+		return "", fmt.Errorf("githubclient: execute request: %w", err)
+	}
+	if resp.Status >= 400 {
+		return "", ghParseAPIError(resp.Status, resp.Body)
+	}
+	return resp.Body, nil
+}
+
+// createPullRequestReview submits a review on a pull request. event must be
+// one of "APPROVE", "REQUEST_CHANGES", or "COMMENT" (GitHub requires a
+// non-empty body for the latter two).
+func (c *ghClient) createPullRequestReview(ctx context.Context, owner, repo string, prNumber int, event, body string) error {
+	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/reviews", ghBaseURL, owner, repo, prNumber)
+	reqBody := map[string]string{"event": event}
+	if body != "" {
+		reqBody["body"] = body
+	}
+	return c.post(ctx, url, reqBody, nil)
+}
+
+// createIssueComment adds a general (non-review) comment to a pull request.
+// GitHub represents PR comments as issue comments under /issues/{number}/comments.
+func (c *ghClient) createIssueComment(ctx context.Context, owner, repo string, prNumber int, body string) error {
+	url := fmt.Sprintf("%s/repos/%s/%s/issues/%d/comments", ghBaseURL, owner, repo, prNumber)
+	return c.post(ctx, url, map[string]string{"body": body}, nil)
+}
+
+// getCombinedStatus fetches legacy commit statuses posted for ref (a SHA,
+// branch, or tag name).
+func (c *ghClient) getCombinedStatus(ctx context.Context, owner, repo, ref string) (*ghCombinedStatus, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/commits/%s/status", ghBaseURL, owner, repo, ref)
+	var status ghCombinedStatus
+	if err := c.get(ctx, url, &status); err != nil {
+		return nil, err
+	}
+	return &status, nil
+}
+
+// getCheckRuns fetches check runs (GitHub Actions and other Checks-API-based
+// CI) for ref (a SHA, branch, or tag name).
+func (c *ghClient) getCheckRuns(ctx context.Context, owner, repo, ref string) (*ghCheckRunsResponse, error) {
+	url := fmt.Sprintf("%s/repos/%s/%s/commits/%s/check-runs", ghBaseURL, owner, repo, ref)
+	var result ghCheckRunsResponse
+	if err := c.get(ctx, url, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (c *ghClient) createBranch(ctx context.Context, owner, repo, newBranch, sourceBranch string) error {

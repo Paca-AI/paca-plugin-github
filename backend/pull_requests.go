@@ -351,3 +351,300 @@ func (p *githubPlugin) unlinkPRFromTask(req *plugin.Request, res *plugin.Respons
 	}
 	noContent(res)
 }
+
+// ─── Shared: resolve a PR's GitHub coordinates for a task ────────────────────
+
+// resolvePRForTask looks up the owner/repo/PR-number GitHub needs to act on a
+// PR, verifying in the same query that prID is actually linked to taskID
+// within this project. Used by every handler below so a caller can't act on
+// a PR outside the task (or project) it claims to be operating in.
+func (p *githubPlugin) resolvePRForTask(projectID, taskID, prID string) (owner, repoName string, prNumber int, err error) {
+	linkResult, lErr := p.db.Query(
+		`SELECT pull_request_id FROM github_task_pr_links WHERE task_id = $1 AND pull_request_id = $2`,
+		taskID, prID,
+	)
+	if lErr != nil {
+		return "", "", 0, lErr
+	}
+	if len(linkResult.Rows) == 0 {
+		return "", "", 0, &appError{code: "GITHUB_PR_LINK_NOT_FOUND", status: 404, msg: "Pull request link not found"}
+	}
+
+	prResult, pErr := p.db.Query(
+		`SELECT repo_id, pr_number FROM github_pull_requests WHERE id = $1 AND project_id = $2`,
+		prID, projectID,
+	)
+	if pErr != nil {
+		return "", "", 0, pErr
+	}
+	if len(prResult.Rows) == 0 {
+		return "", "", 0, &appError{code: "GITHUB_PR_NOT_FOUND", status: 404, msg: "Pull request not found"}
+	}
+	prSc := newRowScanner(prResult.Columns, prResult.Rows[0])
+	repoID := prSc.str("repo_id")
+	prNumber = prSc.intVal("pr_number")
+
+	repoResult, rErr := p.db.Query(
+		`SELECT owner, repo_name FROM github_repositories WHERE id = $1 AND project_id = $2`,
+		repoID, projectID,
+	)
+	if rErr != nil {
+		return "", "", 0, rErr
+	}
+	if len(repoResult.Rows) == 0 {
+		return "", "", 0, &appError{code: "GITHUB_REPOSITORY_NOT_FOUND", status: 404, msg: "Repository not found"}
+	}
+	repoSc := newRowScanner(repoResult.Columns, repoResult.Rows[0])
+	return repoSc.str("owner"), repoSc.str("repo_name"), prNumber, nil
+}
+
+// ─── GET /tasks/:taskId/github/pull-requests/:prId ────────────────────────────
+
+type pullRequestDetailsResponse struct {
+	Owner    string `json:"owner"`
+	RepoName string `json:"repo_name"`
+	PRNumber int    `json:"pr_number"`
+	Title    string `json:"title"`
+	State    string `json:"state"`
+	Body     string `json:"body"`
+	HTMLURL  string `json:"html_url"`
+	Diff     string `json:"diff"`
+}
+
+func (p *githubPlugin) getPullRequestDetails(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
+	taskID := req.PathParam("taskId")
+	prID := req.PathParam("prId")
+
+	owner, repoName, prNumber, err := p.resolvePRForTask(projectID, taskID, prID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+	token, err := p.decryptToken(projectID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+
+	ghc := newGHClient(token)
+	ctx := context.Background()
+	ghPR, err := ghc.getPullRequest(ctx, owner, repoName, prNumber)
+	if err != nil {
+		apiError(res, 502, "INTERNAL_ERROR", fmt.Sprintf("failed to fetch pull request: %s", err))
+		return
+	}
+	diff, err := ghc.getPullRequestDiff(ctx, owner, repoName, prNumber)
+	if err != nil {
+		apiError(res, 502, "INTERNAL_ERROR", fmt.Sprintf("failed to fetch pull request diff: %s", err))
+		return
+	}
+
+	ok(res, pullRequestDetailsResponse{
+		Owner:    owner,
+		RepoName: repoName,
+		PRNumber: prNumber,
+		Title:    ghPR.Title,
+		State:    ghPR.State,
+		HTMLURL:  ghPR.HTMLURL,
+		Diff:     diff,
+	})
+}
+
+// ─── GET /tasks/:taskId/github/pull-requests/:prId/ci-status ─────────────────
+
+type ciCheckResponse struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`     // "queued" | "in_progress" | "completed" | "pending"
+	Conclusion string `json:"conclusion"` // "success" | "failure" | ... | "" while not completed
+	URL        string `json:"url"`
+}
+
+type ciStatusResponse struct {
+	State  string            `json:"state"` // "success" | "failure" | "pending" | "unknown"
+	Checks []ciCheckResponse `json:"checks"`
+}
+
+// overallCIState summarizes a set of checks the same way GitHub's own PR
+// merge-box does: any failure wins, otherwise any still-running check makes
+// the whole thing pending, otherwise (and only if there's at least one
+// check) it's a success. No checks at all is reported as "unknown" rather
+// than "success" so the agent doesn't mistake "no CI configured" for "CI
+// passed".
+func overallCIState(checks []ciCheckResponse) string {
+	if len(checks) == 0 {
+		return "unknown"
+	}
+	pending := false
+	for _, c := range checks {
+		switch c.Conclusion {
+		case "failure", "timed_out", "cancelled", "action_required", "error":
+			return "failure"
+		case "success", "neutral", "skipped":
+			continue
+		}
+		if c.Status != "completed" {
+			pending = true
+		}
+	}
+	if pending {
+		return "pending"
+	}
+	return "success"
+}
+
+func (p *githubPlugin) getPullRequestCIStatus(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
+	taskID := req.PathParam("taskId")
+	prID := req.PathParam("prId")
+
+	owner, repoName, prNumber, err := p.resolvePRForTask(projectID, taskID, prID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+	token, err := p.decryptToken(projectID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+
+	ghc := newGHClient(token)
+	ctx := context.Background()
+	ghPR, err := ghc.getPullRequest(ctx, owner, repoName, prNumber)
+	if err != nil {
+		apiError(res, 502, "INTERNAL_ERROR", fmt.Sprintf("failed to fetch pull request: %s", err))
+		return
+	}
+	sha := ghPR.Head.SHA
+
+	checks := make([]ciCheckResponse, 0)
+
+	if combined, cErr := ghc.getCombinedStatus(ctx, owner, repoName, sha); cErr == nil {
+		for _, s := range combined.Statuses {
+			checks = append(checks, ciCheckResponse{
+				Name:       s.Context,
+				Status:     "completed",
+				Conclusion: s.State,
+				URL:        s.TargetURL,
+			})
+		}
+	} else {
+		p.log.Error(fmt.Sprintf("failed to fetch combined status for %s/%s@%s: %s", owner, repoName, sha, cErr))
+	}
+
+	if runs, rErr := ghc.getCheckRuns(ctx, owner, repoName, sha); rErr == nil {
+		for _, r := range runs.CheckRuns {
+			conclusion := ""
+			if r.Conclusion != nil {
+				conclusion = *r.Conclusion
+			}
+			checks = append(checks, ciCheckResponse{
+				Name:       r.Name,
+				Status:     r.Status,
+				Conclusion: conclusion,
+				URL:        r.HTMLURL,
+			})
+		}
+	} else {
+		p.log.Error(fmt.Sprintf("failed to fetch check runs for %s/%s@%s: %s", owner, repoName, sha, rErr))
+	}
+
+	ok(res, ciStatusResponse{
+		State:  overallCIState(checks),
+		Checks: checks,
+	})
+}
+
+// ─── POST /tasks/:taskId/github/pull-requests/:prId/comments ─────────────────
+
+func (p *githubPlugin) addPullRequestComment(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
+	taskID := req.PathParam("taskId")
+	prID := req.PathParam("prId")
+
+	type bodyT struct {
+		Body string `json:"body"`
+	}
+	b, err := plugin.JSONBody[bodyT](req)
+	if err != nil || b.Body == "" {
+		apiError(res, 400, "BAD_REQUEST", "body is required")
+		return
+	}
+
+	owner, repoName, prNumber, err := p.resolvePRForTask(projectID, taskID, prID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+	token, err := p.decryptToken(projectID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+
+	ghc := newGHClient(token)
+	if err := ghc.createIssueComment(context.Background(), owner, repoName, prNumber, b.Body); err != nil {
+		var apiErr *ghAPIError
+		if errors.As(err, &apiErr) && (apiErr.StatusCode == 401 || apiErr.StatusCode == 403) {
+			apiError(res, 403, "GITHUB_TOKEN_INSUFFICIENT_PERMISSIONS", "Token does not have permission to comment on pull requests")
+			return
+		}
+		apiError(res, 502, "INTERNAL_ERROR", fmt.Sprintf("failed to add comment: %s", err))
+		return
+	}
+	created(res, map[string]bool{"success": true})
+}
+
+// ─── POST /tasks/:taskId/github/pull-requests/:prId/reviews ──────────────────
+
+func (p *githubPlugin) createReview(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
+	taskID := req.PathParam("taskId")
+	prID := req.PathParam("prId")
+
+	type bodyT struct {
+		Event string `json:"event"`
+		Body  string `json:"body"`
+	}
+	b, err := plugin.JSONBody[bodyT](req)
+	if err != nil {
+		apiError(res, 400, "BAD_REQUEST", "event is required")
+		return
+	}
+	switch b.Event {
+	case "APPROVE", "REQUEST_CHANGES", "COMMENT":
+	default:
+		apiError(res, 400, "BAD_REQUEST", "event must be one of: APPROVE, REQUEST_CHANGES, COMMENT")
+		return
+	}
+
+	owner, repoName, prNumber, err := p.resolvePRForTask(projectID, taskID, prID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+	token, err := p.decryptToken(projectID)
+	if err != nil {
+		writeAppError(res, err)
+		return
+	}
+
+	ghc := newGHClient(token)
+	if err := ghc.createPullRequestReview(context.Background(), owner, repoName, prNumber, b.Event, b.Body); err != nil {
+		var apiErr *ghAPIError
+		if errors.As(err, &apiErr) {
+			switch apiErr.StatusCode {
+			case 401, 403:
+				apiError(res, 403, "GITHUB_TOKEN_INSUFFICIENT_PERMISSIONS", "Token does not have permission to review pull requests")
+				return
+			case 422:
+				apiError(res, 422, "GITHUB_PR_VALIDATION_ERROR", fmt.Sprintf("GitHub validation error: %s", apiErr.Message))
+				return
+			}
+		}
+		apiError(res, 502, "INTERNAL_ERROR", fmt.Sprintf("failed to submit review: %s", err))
+		return
+	}
+	created(res, map[string]bool{"success": true})
+}

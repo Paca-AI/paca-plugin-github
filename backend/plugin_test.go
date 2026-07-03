@@ -87,3 +87,132 @@ func TestGetIntegration_NotConnected(t *testing.T) {
 		t.Fatalf("expected project_id=%s, got %s", testProjectID, env.Data.ProjectID)
 	}
 }
+
+// ── PR review/comment tests ────────────────────────────────────────────────────
+//
+// These cover the paths reachable without an outbound GitHub API call
+// (validation and "PR not linked to this task"). The actual GitHub call
+// (ghClient -> plugin.Fetch) always errors outside a WASM build — see
+// plugin-sdk-go's native_backends.go — so the happy path for these three
+// handlers, like the existing createPullRequest handler, isn't unit-testable
+// here and is covered manually / by integration testing instead.
+
+func reqWithPathParams(params map[string]string) plugintest.Request {
+	r := callerReq()
+	for k, v := range params {
+		r.PathParams[k] = v
+	}
+	return r
+}
+
+func TestGetPullRequestDetails_NotLinkedToTask(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID, "prId": "pr-1"})
+	res := tc.Call("GET", "/tasks/:taskId/pull-requests/:prId", req)
+
+	if res.StatusCode != 404 {
+		t.Fatalf("expected 404, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestAddPullRequestComment_MissingBody(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID, "prId": "pr-1"}).
+		WithJSONBody(map[string]string{})
+	res := tc.Call("POST", "/tasks/:taskId/pull-requests/:prId/comments", req)
+
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestAddPullRequestComment_NotLinkedToTask(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID, "prId": "pr-1"}).
+		WithJSONBody(map[string]string{"body": "looks good"})
+	res := tc.Call("POST", "/tasks/:taskId/pull-requests/:prId/comments", req)
+
+	if res.StatusCode != 404 {
+		t.Fatalf("expected 404, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestCreateReview_InvalidEvent(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID, "prId": "pr-1"}).
+		WithJSONBody(map[string]string{"event": "NOT_A_REAL_EVENT"})
+	res := tc.Call("POST", "/tasks/:taskId/pull-requests/:prId/reviews", req)
+
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestCreateReview_NotLinkedToTask(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID, "prId": "pr-1"}).
+		WithJSONBody(map[string]string{"event": "APPROVE"})
+	res := tc.Call("POST", "/tasks/:taskId/pull-requests/:prId/reviews", req)
+
+	if res.StatusCode != 404 {
+		t.Fatalf("expected 404, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestGetPullRequestCIStatus_NotLinkedToTask(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID, "prId": "pr-1"})
+	res := tc.Call("GET", "/tasks/:taskId/pull-requests/:prId/ci-status", req)
+
+	if res.StatusCode != 404 {
+		t.Fatalf("expected 404, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+// ── overallCIState ─────────────────────────────────────────────────────────────
+
+func TestOverallCIState_NoChecks(t *testing.T) {
+	if got := overallCIState(nil); got != "unknown" {
+		t.Fatalf("expected unknown, got %s", got)
+	}
+}
+
+func TestOverallCIState_AllSuccess(t *testing.T) {
+	checks := []ciCheckResponse{
+		{Status: "completed", Conclusion: "success"},
+		{Status: "completed", Conclusion: "neutral"},
+	}
+	if got := overallCIState(checks); got != "success" {
+		t.Fatalf("expected success, got %s", got)
+	}
+}
+
+func TestOverallCIState_OneFailureWins(t *testing.T) {
+	checks := []ciCheckResponse{
+		{Status: "completed", Conclusion: "success"},
+		{Status: "completed", Conclusion: "failure"},
+	}
+	if got := overallCIState(checks); got != "failure" {
+		t.Fatalf("expected failure, got %s", got)
+	}
+}
+
+func TestOverallCIState_StillRunningIsPending(t *testing.T) {
+	checks := []ciCheckResponse{
+		{Status: "completed", Conclusion: "success"},
+		{Status: "in_progress", Conclusion: ""},
+	}
+	if got := overallCIState(checks); got != "pending" {
+		t.Fatalf("expected pending, got %s", got)
+	}
+}
+
+func TestOverallCIState_FailureBeatsPending(t *testing.T) {
+	checks := []ciCheckResponse{
+		{Status: "in_progress", Conclusion: ""},
+		{Status: "completed", Conclusion: "failure"},
+	}
+	if got := overallCIState(checks); got != "failure" {
+		t.Fatalf("expected failure, got %s", got)
+	}
+}

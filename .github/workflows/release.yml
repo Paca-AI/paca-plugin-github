@@ -60,6 +60,9 @@ jobs:
           mkdir -p release/migrations
           cp -R backend/migrations/. release/migrations/
 
+          mkdir -p release/skills
+          cp -R skills/. release/skills/
+
           cp plugin.json release/plugin.json
 
       - name: Create archives
@@ -69,6 +72,7 @@ jobs:
           tar -czf github-frontend-dist.tar.gz -C release/frontend dist
           tar -czf github-mcp-dist.tar.gz -C release/mcp dist
           tar -czf github-migrations.tar.gz -C release migrations
+          tar -czf github-skills-bundle.tar.gz -C release skills
           tar -czf github-plugin-manifest.tar.gz -C release plugin.json
 
       - name: Generate checksums
@@ -78,6 +82,7 @@ jobs:
             github-frontend-dist.tar.gz \
             github-mcp-dist.tar.gz \
             github-migrations.tar.gz \
+            github-skills-bundle.tar.gz \
             github-plugin-manifest.tar.gz > checksums.txt
 
       - name: Publish GitHub Release assets
@@ -89,5 +94,6 @@ jobs:
             github-frontend-dist.tar.gz
             github-mcp-dist.tar.gz
             github-migrations.tar.gz
+            github-skills-bundle.tar.gz
             github-plugin-manifest.tar.gz
             checksums.txt

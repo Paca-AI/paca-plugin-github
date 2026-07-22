@@ -8,6 +8,10 @@
   "backend": {
     "allowedConfigKeys": ["ENCRYPTION_KEY", "PUBLIC_URL"],
     "allowedOutboundDomains": ["api.github.com"],
+    "sensitiveFields": {
+      "github_integrations": ["access_token_enc"],
+      "github_repositories": ["webhook_secret_enc"]
+    },
     "routes": [
       {
         "method": "GET",
@@ -270,5 +274,9 @@
   },
   "mcp": {
     "remoteEntryUrl": "/plugins-mcp/com.paca.github/mcp.js"
+  },
+  "skills": {
+    "baseUrl": "/plugins-skills/com.paca.github",
+    "names": ["paca-github-workflow"]
   }
 }

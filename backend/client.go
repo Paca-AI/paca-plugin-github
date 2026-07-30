@@ -384,6 +384,11 @@ func (c *ghClient) getCheckRuns(ctx context.Context, owner, repo, ref string) (*
 	return &result, nil
 }
 
+func (c *ghClient) branchExists(ctx context.Context, owner, repo, branch string) error {
+	refURL := fmt.Sprintf("%s/repos/%s/%s/git/ref/heads/%s", ghBaseURL, owner, repo, branch)
+	return c.get(ctx, refURL, &struct{}{})
+}
+
 func (c *ghClient) createBranch(ctx context.Context, owner, repo, newBranch, sourceBranch string) error {
 	refURL := fmt.Sprintf("%s/repos/%s/%s/git/ref/heads/%s", ghBaseURL, owner, repo, sourceBranch)
 	var refResp struct {

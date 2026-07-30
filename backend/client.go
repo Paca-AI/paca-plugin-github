@@ -326,6 +326,28 @@ func (c *ghClient) createPullRequest(ctx context.Context, owner, repo, title, he
 	return &pr, nil
 }
 
+// mergePullRequest merges a pull request via PUT /pulls/{number}/merge.
+// mergeMethod is one of "merge" | "squash" | "rebase" (GitHub defaults to
+// "merge" if empty, but callers should always pass an explicit value).
+func (c *ghClient) mergePullRequest(ctx context.Context, owner, repo string, prNumber int, mergeMethod string) error {
+	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d/merge", ghBaseURL, owner, repo, prNumber)
+	body := map[string]string{"merge_method": mergeMethod}
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("githubclient: encode body: %w", err)
+	}
+	hdrs := c.headers()
+	hdrs["Content-Type"] = "application/json"
+	resp, err := plugin.Fetch("PUT", url, hdrs, string(bodyJSON))
+	if err != nil {
+		return fmt.Errorf("githubclient: execute request: %w", err)
+	}
+	if resp.Status >= 400 {
+		return ghParseAPIError(resp.Status, resp.Body)
+	}
+	return nil
+}
+
 // getPullRequestDiff fetches the unified diff for a pull request via GitHub's
 // diff media type. Unlike get(), the response body is raw diff text, not
 // JSON, so it bypasses get()'s json.Unmarshal step.

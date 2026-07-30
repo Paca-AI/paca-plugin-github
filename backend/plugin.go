@@ -61,6 +61,9 @@ func (p *githubPlugin) Init(ctx *plugin.Context) error {
 	// ── Webhook ───────────────────────────────────────────────────────────────
 	ctx.Route("POST", "/webhook", p.receiveWebhook)
 
+	// ── Automation graph nodes (Condition/Action) ─────────────────────────────
+	p.registerAutomationNodes(ctx)
+
 	return nil
 }
 

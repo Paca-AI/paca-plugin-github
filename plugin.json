@@ -272,6 +272,57 @@
       }
     ]
   },
+  "automation": {
+    "conditions": [
+      {
+        "type": "com.paca.github.pr_state",
+        "label": "GitHub: Pull Request State",
+        "configSchema": {
+          "type": "object",
+          "required": ["project_id", "expected_state"],
+          "properties": {
+            "project_id": { "type": "string", "title": "Project ID" },
+            "expected_state": {
+              "type": "string",
+              "title": "Expected State",
+              "enum": ["open", "closed", "merged"]
+            }
+          }
+        }
+      }
+    ],
+    "actions": [
+      {
+        "type": "com.paca.github.merge_pr",
+        "label": "GitHub: Merge Pull Request",
+        "configSchema": {
+          "type": "object",
+          "required": ["project_id"],
+          "properties": {
+            "project_id": { "type": "string", "title": "Project ID" },
+            "merge_method": {
+              "type": "string",
+              "title": "Merge Method",
+              "enum": ["merge", "squash", "rebase"],
+              "default": "merge"
+            }
+          }
+        }
+      },
+      {
+        "type": "com.paca.github.comment_pr",
+        "label": "GitHub: Comment on Pull Request",
+        "configSchema": {
+          "type": "object",
+          "required": ["project_id", "body"],
+          "properties": {
+            "project_id": { "type": "string", "title": "Project ID" },
+            "body": { "type": "string", "title": "Comment Body", "format": "textarea" }
+          }
+        }
+      }
+    ]
+  },
   "mcp": {
     "remoteEntryUrl": "/plugins-mcp/com.paca.github/mcp.js"
   },

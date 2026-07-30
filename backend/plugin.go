@@ -57,6 +57,7 @@ func (p *githubPlugin) Init(ctx *plugin.Context) error {
 	ctx.Route("POST", "/tasks/:taskId/pull-requests/:prId/reviews", p.createReview)
 	ctx.Route("GET", "/tasks/:taskId/branches", p.listTaskBranches)
 	ctx.Route("POST", "/tasks/:taskId/branches", p.createBranch)
+	ctx.Route("POST", "/tasks/:taskId/branches/link", p.linkBranchToTask)
 
 	// ── Webhook ───────────────────────────────────────────────────────────────
 	ctx.Route("POST", "/webhook", p.receiveWebhook)

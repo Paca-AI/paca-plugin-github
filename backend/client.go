@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -384,13 +385,25 @@ func (c *ghClient) getCheckRuns(ctx context.Context, owner, repo, ref string) (*
 	return &result, nil
 }
 
+// ghBranchHeadRefURL builds GET /repos/{owner}/{repo}/git/ref/heads/{branch}.
+// Branch names may contain slashes (e.g. fix/foo); encode the ref segment so
+// the path is not split into extra URL segments.
+func ghBranchHeadRefURL(owner, repo, branch string) string {
+	return fmt.Sprintf(
+		"%s/repos/%s/%s/git/ref/heads/%s",
+		ghBaseURL,
+		url.PathEscape(owner),
+		url.PathEscape(repo),
+		url.PathEscape(branch),
+	)
+}
+
 func (c *ghClient) branchExists(ctx context.Context, owner, repo, branch string) error {
-	refURL := fmt.Sprintf("%s/repos/%s/%s/git/ref/heads/%s", ghBaseURL, owner, repo, branch)
-	return c.get(ctx, refURL, &struct{}{})
+	return c.get(ctx, ghBranchHeadRefURL(owner, repo, branch), &struct{}{})
 }
 
 func (c *ghClient) createBranch(ctx context.Context, owner, repo, newBranch, sourceBranch string) error {
-	refURL := fmt.Sprintf("%s/repos/%s/%s/git/ref/heads/%s", ghBaseURL, owner, repo, sourceBranch)
+	refURL := ghBranchHeadRefURL(owner, repo, sourceBranch)
 	var refResp struct {
 		Object struct {
 			SHA string `json:"sha"`
@@ -400,7 +413,7 @@ func (c *ghClient) createBranch(ctx context.Context, owner, repo, newBranch, sou
 		return fmt.Errorf("resolve source branch %q: %w", sourceBranch, err)
 	}
 
-	createURL := fmt.Sprintf("%s/repos/%s/%s/git/refs", ghBaseURL, owner, repo)
+	createURL := fmt.Sprintf("%s/repos/%s/%s/git/refs", ghBaseURL, url.PathEscape(owner), url.PathEscape(repo))
 	return c.post(ctx, createURL, map[string]string{
 		"ref": "refs/heads/" + newBranch,
 		"sha": refResp.Object.SHA,

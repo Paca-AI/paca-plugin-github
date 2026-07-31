@@ -169,6 +169,17 @@ func TestGetPullRequestCIStatus_NotLinkedToTask(t *testing.T) {
 	}
 }
 
+func TestLinkBranchToTask_MissingBody(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID}).
+		WithJSONBody(map[string]string{})
+	res := tc.Call("POST", "/tasks/:taskId/branches/link", req)
+
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
 // ── overallCIState ─────────────────────────────────────────────────────────────
 
 func TestOverallCIState_NoChecks(t *testing.T) {

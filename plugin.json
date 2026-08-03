@@ -272,6 +272,70 @@
       }
     ]
   },
+  "automation": {
+    "triggers": [
+      {
+        "type": "github.pr_linked",
+        "label": "GitHub: Pull Request Created",
+        "eventTopic": "github.pr_linked"
+      },
+      {
+        "type": "github.pr_state_changed",
+        "label": "GitHub: Pull Request State Changed",
+        "eventTopic": "github.pr_state_changed"
+      },
+      {
+        "type": "github.branch_linked",
+        "label": "GitHub: Branch Created",
+        "eventTopic": "github.branch_linked"
+      }
+    ],
+    "conditions": [
+      {
+        "type": "github.pr_state",
+        "label": "GitHub: Pull Request State",
+        "configSchema": {
+          "type": "object",
+          "required": ["expected_state"],
+          "properties": {
+            "expected_state": {
+              "type": "string",
+              "title": "Expected State",
+              "enum": ["open", "closed", "merged"]
+            }
+          }
+        }
+      }
+    ],
+    "actions": [
+      {
+        "type": "github.merge_pr",
+        "label": "GitHub: Merge Pull Request",
+        "configSchema": {
+          "type": "object",
+          "properties": {
+            "merge_method": {
+              "type": "string",
+              "title": "Merge Method",
+              "enum": ["merge", "squash", "rebase"],
+              "default": "merge"
+            }
+          }
+        }
+      },
+      {
+        "type": "github.comment_pr",
+        "label": "GitHub: Comment on Pull Request",
+        "configSchema": {
+          "type": "object",
+          "required": ["body"],
+          "properties": {
+            "body": { "type": "string", "title": "Comment Body", "format": "textarea" }
+          }
+        }
+      }
+    ]
+  },
   "mcp": {
     "remoteEntryUrl": "/plugins-mcp/com.paca.github/mcp.js"
   },

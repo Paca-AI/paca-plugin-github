@@ -105,6 +105,19 @@ func (p *githubPlugin) handlePREvent(repoID, projectID string, payload []byte) e
 		state = "merged"
 	}
 
+	// Read the PR's previously cached state before the upsert overwrites
+	// it, so we can tell a genuine open/closed/merged transition (the
+	// github.pr_state_changed automation trigger's source) apart from a
+	// re-delivered webhook or a non-state-changing action like
+	// "synchronize"/"labeled", both of which still update the row above but
+	// shouldn't re-fire an automation. previousState == "" (no existing
+	// row) means this is the PR's first webhook delivery — not a
+	// transition, so it never fires pr_state_changed either.
+	var previousState string
+	if existing, exErr := p.db.Query(`SELECT state FROM github_pull_requests WHERE repo_id = $1 AND pr_number = $2`, repoID, gh.Number); exErr == nil && len(existing.Rows) > 0 {
+		previousState = newRowScanner(existing.Columns, existing.Rows[0]).str("state")
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 
 	var mergedAtStr *string
@@ -159,18 +172,32 @@ func (p *githubPlugin) handlePREvent(repoID, projectID string, payload []byte) e
 		}
 	}
 
-	// Emit PR updated for all linked tasks.
+	// Emit PR updated for all linked tasks — and, when the derived
+	// open/closed/merged state actually transitioned since the last
+	// webhook delivery, the more specific pr_state_changed event too (the
+	// github.pr_state_changed automation trigger's source).
+	stateChanged := previousState != "" && previousState != state
 	linkedResult, _ := p.db.Query(`SELECT task_id FROM github_task_pr_links WHERE pull_request_id = $1`, prID)
 	if linkedResult != nil {
 		for _, row := range linkedResult.Rows {
-			sc := newRowScanner(linkedResult.Columns, row)
+			taskID := newRowScanner(linkedResult.Columns, row).str("task_id")
 			plugin.EmitEvent("github.pr_updated", map[string]any{
 				"project_id": projectID,
-				"task_id":    sc.str("task_id"),
+				"task_id":    taskID,
 				"repo_id":    repoID,
 				"pr_number":  gh.Number,
 				"action":     event.Action,
 			})
+			if stateChanged {
+				plugin.EmitEvent("github.pr_state_changed", map[string]any{
+					"project_id": projectID,
+					"task_id":    taskID,
+					"repo_id":    repoID,
+					"pr_number":  gh.Number,
+					"from_state": previousState,
+					"to_state":   state,
+				})
+			}
 		}
 	}
 	return nil

@@ -273,15 +273,31 @@
     ]
   },
   "automation": {
+    "triggers": [
+      {
+        "type": "github.pr_linked",
+        "label": "GitHub: Pull Request Created",
+        "eventTopic": "github.pr_linked"
+      },
+      {
+        "type": "github.pr_state_changed",
+        "label": "GitHub: Pull Request State Changed",
+        "eventTopic": "github.pr_state_changed"
+      },
+      {
+        "type": "github.branch_linked",
+        "label": "GitHub: Branch Created",
+        "eventTopic": "github.branch_linked"
+      }
+    ],
     "conditions": [
       {
-        "type": "com.paca.github.pr_state",
+        "type": "github.pr_state",
         "label": "GitHub: Pull Request State",
         "configSchema": {
           "type": "object",
-          "required": ["project_id", "expected_state"],
+          "required": ["expected_state"],
           "properties": {
-            "project_id": { "type": "string", "title": "Project ID" },
             "expected_state": {
               "type": "string",
               "title": "Expected State",
@@ -293,13 +309,11 @@
     ],
     "actions": [
       {
-        "type": "com.paca.github.merge_pr",
+        "type": "github.merge_pr",
         "label": "GitHub: Merge Pull Request",
         "configSchema": {
           "type": "object",
-          "required": ["project_id"],
           "properties": {
-            "project_id": { "type": "string", "title": "Project ID" },
             "merge_method": {
               "type": "string",
               "title": "Merge Method",
@@ -310,13 +324,12 @@
         }
       },
       {
-        "type": "com.paca.github.comment_pr",
+        "type": "github.comment_pr",
         "label": "GitHub: Comment on Pull Request",
         "configSchema": {
           "type": "object",
-          "required": ["project_id", "body"],
+          "required": ["body"],
           "properties": {
-            "project_id": { "type": "string", "title": "Project ID" },
             "body": { "type": "string", "title": "Comment Body", "format": "textarea" }
           }
         }

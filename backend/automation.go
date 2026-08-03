@@ -11,24 +11,26 @@ import (
 // types this plugin contributes, registered in Init via ctx.Condition and
 // ctx.Action. Node types must match exactly what's declared in plugin.json
 // under "automation" (see AutomationManifest in the core's
-// domain/plugin/entity.go) — reverse-DNS namespaced under "com.paca.github".
+// domain/plugin/entity.go) — namespaced under the plugin's short name,
+// "github" (the last dot-separated segment of the plugin ID "com.paca.github"),
+// not the full reverse-DNS ID.
 //
-// Both handlers resolve the calling project from req.Config.ProjectID
-// (embedded in the node's config at graph-authoring time via the config
-// form, same as any other plugin node config field) rather than from
-// req.Task, since a task by itself doesn't carry which GitHub repository/PR
-// it's linked to — that's resolved through github_task_pr_links the same
-// way the HTTP handlers in pull_requests.go do it.
+// Both handlers resolve the calling project from req.ProjectID — supplied
+// directly by the host (the automation graph's own project), not read from
+// the node's config — since a task by itself doesn't carry which GitHub
+// repository/PR it's linked to; that's resolved through
+// github_task_pr_links the same way the HTTP handlers in pull_requests.go
+// do it, keyed by (task_id, project_id).
 
 const (
 	// automationConditionPRState checks the linked pull request's state
 	// (open/closed/merged) against a configured expected value.
-	automationConditionPRState = "com.paca.github.pr_state"
+	automationConditionPRState = "github.pr_state"
 
 	// automationActionMergePR merges the linked pull request.
-	automationActionMergePR = "com.paca.github.merge_pr"
+	automationActionMergePR = "github.merge_pr"
 	// automationActionCommentPR posts a comment on the linked pull request.
-	automationActionCommentPR = "com.paca.github.comment_pr"
+	automationActionCommentPR = "github.comment_pr"
 )
 
 // registerAutomationNodes wires this plugin's Condition/Action handlers
@@ -77,43 +79,24 @@ func (p *githubPlugin) resolveLinkedPRForAutomation(projectID, taskID string) (*
 	}, nil
 }
 
-// automationProjectID extracts the project_id every node config in this
-// plugin's automation contributions requires — the automation graph itself
-// is scoped to a project, but the plugin's own DB rows are keyed by
-// project_id too, so each node config carries it explicitly rather than
-// relying on cross-referencing the automation run.
-func automationProjectID(config json.RawMessage) (string, error) {
-	var v struct {
-		ProjectID string `json:"project_id"`
-	}
-	if err := json.Unmarshal(config, &v); err != nil {
-		return "", err
-	}
-	if v.ProjectID == "" {
-		return "", &appError{code: "GITHUB_MISSING_PROJECT_ID", status: 400, msg: "config.project_id is required"}
-	}
-	return v.ProjectID, nil
-}
-
-// ─── Condition: com.paca.github.pr_state ─────────────────────────────────────
+// ─── Condition: github.pr_state ───────────────────────────────────────────────
 
 func (p *githubPlugin) conditionPRState(req *plugin.ConditionRequest) plugin.ConditionResult {
 	var cfg struct {
-		ProjectID     string `json:"project_id"`
 		ExpectedState string `json:"expected_state"` // "open" | "closed" | "merged"
 	}
-	if err := json.Unmarshal(req.Config, &cfg); err != nil || cfg.ProjectID == "" || cfg.ExpectedState == "" {
+	if err := json.Unmarshal(req.Config, &cfg); err != nil || req.ProjectID == "" || cfg.ExpectedState == "" {
 		p.log.Error("github: pr_state condition: invalid config")
 		return plugin.ConditionResult{Matched: false}
 	}
 
-	linked, err := p.resolveLinkedPRForAutomation(cfg.ProjectID, req.Task.ID)
+	linked, err := p.resolveLinkedPRForAutomation(req.ProjectID, req.Task.ID)
 	if err != nil {
 		p.log.Info("github: pr_state condition: " + err.Error())
 		return plugin.ConditionResult{Matched: false}
 	}
 
-	token, err := p.decryptToken(cfg.ProjectID)
+	token, err := p.decryptToken(req.ProjectID)
 	if err != nil {
 		p.log.Error("github: pr_state condition: decrypt token: " + err.Error())
 		return plugin.ConditionResult{Matched: false}
@@ -133,26 +116,25 @@ func (p *githubPlugin) conditionPRState(req *plugin.ConditionRequest) plugin.Con
 	return plugin.ConditionResult{Matched: state == cfg.ExpectedState}
 }
 
-// ─── Action: com.paca.github.merge_pr ─────────────────────────────────────────
+// ─── Action: github.merge_pr ──────────────────────────────────────────────────
 
 func (p *githubPlugin) actionMergePR(req *plugin.ActionRequest) plugin.ActionResult {
 	var cfg struct {
-		ProjectID   string `json:"project_id"`
 		MergeMethod string `json:"merge_method"` // "merge" | "squash" | "rebase"; defaults to "merge"
 	}
-	if err := json.Unmarshal(req.Config, &cfg); err != nil || cfg.ProjectID == "" {
-		return plugin.ActionResult{Applied: false, Error: "invalid config: project_id is required"}
+	if err := json.Unmarshal(req.Config, &cfg); err != nil || req.ProjectID == "" {
+		return plugin.ActionResult{Applied: false, Error: "invalid config"}
 	}
 	if cfg.MergeMethod == "" {
 		cfg.MergeMethod = "merge"
 	}
 
-	linked, err := p.resolveLinkedPRForAutomation(cfg.ProjectID, req.Task.ID)
+	linked, err := p.resolveLinkedPRForAutomation(req.ProjectID, req.Task.ID)
 	if err != nil {
 		return plugin.ActionResult{Applied: false, Error: err.Error()}
 	}
 
-	token, err := p.decryptToken(cfg.ProjectID)
+	token, err := p.decryptToken(req.ProjectID)
 	if err != nil {
 		return plugin.ActionResult{Applied: false, Error: "decrypt token: " + err.Error()}
 	}
@@ -177,23 +159,22 @@ func (p *githubPlugin) actionMergePR(req *plugin.ActionRequest) plugin.ActionRes
 	return plugin.ActionResult{Applied: true}
 }
 
-// ─── Action: com.paca.github.comment_pr ───────────────────────────────────────
+// ─── Action: github.comment_pr ────────────────────────────────────────────────
 
 func (p *githubPlugin) actionCommentPR(req *plugin.ActionRequest) plugin.ActionResult {
 	var cfg struct {
-		ProjectID string `json:"project_id"`
-		Body      string `json:"body"`
+		Body string `json:"body"`
 	}
-	if err := json.Unmarshal(req.Config, &cfg); err != nil || cfg.ProjectID == "" || cfg.Body == "" {
-		return plugin.ActionResult{Applied: false, Error: "invalid config: project_id and body are required"}
+	if err := json.Unmarshal(req.Config, &cfg); err != nil || req.ProjectID == "" || cfg.Body == "" {
+		return plugin.ActionResult{Applied: false, Error: "invalid config: body is required"}
 	}
 
-	linked, err := p.resolveLinkedPRForAutomation(cfg.ProjectID, req.Task.ID)
+	linked, err := p.resolveLinkedPRForAutomation(req.ProjectID, req.Task.ID)
 	if err != nil {
 		return plugin.ActionResult{Applied: false, Error: err.Error()}
 	}
 
-	token, err := p.decryptToken(cfg.ProjectID)
+	token, err := p.decryptToken(req.ProjectID)
 	if err != nil {
 		return plugin.ActionResult{Applied: false, Error: "decrypt token: " + err.Error()}
 	}

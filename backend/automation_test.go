@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"testing"
 
 	plugin "github.com/Paca-AI/plugin-sdk-go"
@@ -12,13 +11,23 @@ import (
 // config validation and "no PR linked to this task". The GitHub-API-backed
 // happy path (like other ghClient-dependent handlers in this plugin) isn't
 // unit-testable outside a WASM build — see plugin_test.go's note on this.
+//
+// ProjectID is supplied the same way the host always supplies it — as a
+// top-level request field, not folded into Config — mirroring how
+// pluginNodePayload builds a real automation run's request in the core.
 
 func conditionReqWithConfig(cfg any) plugintest.ConditionRequest {
-	return plugintest.ConditionRequest{Task: plugin.TaskSnapshot{ID: testTaskID}}.WithJSONConfig(cfg)
+	return plugintest.ConditionRequest{
+		Task:      plugin.TaskSnapshot{ID: testTaskID},
+		ProjectID: testProjectID,
+	}.WithJSONConfig(cfg)
 }
 
 func actionReqWithConfig(cfg any) plugintest.ActionRequest {
-	return plugintest.ActionRequest{Task: plugin.TaskSnapshot{ID: testTaskID}}.WithJSONConfig(cfg)
+	return plugintest.ActionRequest{
+		Task:      plugin.TaskSnapshot{ID: testTaskID},
+		ProjectID: testProjectID,
+	}.WithJSONConfig(cfg)
 }
 
 func TestConditionPRState_MissingConfig(t *testing.T) {
@@ -29,9 +38,19 @@ func TestConditionPRState_MissingConfig(t *testing.T) {
 	}
 }
 
+func TestConditionPRState_MissingProjectID(t *testing.T) {
+	tc := setupPlugin(t)
+	req := plugintest.ConditionRequest{Task: plugin.TaskSnapshot{ID: testTaskID}}.
+		WithJSONConfig(map[string]string{"expected_state": "merged"})
+	result := tc.EvaluateCondition(automationConditionPRState, req)
+	if result.Matched {
+		t.Fatal("expected Matched=false when the host supplies no project_id")
+	}
+}
+
 func TestConditionPRState_NoLinkedPR(t *testing.T) {
 	tc := setupPlugin(t)
-	cfg := map[string]string{"project_id": testProjectID, "expected_state": "merged"}
+	cfg := map[string]string{"expected_state": "merged"}
 	result := tc.EvaluateCondition(automationConditionPRState, conditionReqWithConfig(cfg))
 	if result.Matched {
 		t.Fatal("expected Matched=false when no PR is linked to the task")
@@ -40,9 +59,11 @@ func TestConditionPRState_NoLinkedPR(t *testing.T) {
 
 func TestActionMergePR_MissingProjectID(t *testing.T) {
 	tc := setupPlugin(t)
-	result := tc.RunAction(automationActionMergePR, actionReqWithConfig(map[string]string{}))
+	req := plugintest.ActionRequest{Task: plugin.TaskSnapshot{ID: testTaskID}}.
+		WithJSONConfig(map[string]string{})
+	result := tc.RunAction(automationActionMergePR, req)
 	if result.Applied {
-		t.Fatal("expected Applied=false for missing project_id")
+		t.Fatal("expected Applied=false when the host supplies no project_id")
 	}
 	if result.Error == "" {
 		t.Fatal("expected an error message for missing project_id")
@@ -51,8 +72,7 @@ func TestActionMergePR_MissingProjectID(t *testing.T) {
 
 func TestActionMergePR_NoLinkedPR(t *testing.T) {
 	tc := setupPlugin(t)
-	cfg := map[string]string{"project_id": testProjectID}
-	result := tc.RunAction(automationActionMergePR, actionReqWithConfig(cfg))
+	result := tc.RunAction(automationActionMergePR, actionReqWithConfig(map[string]string{}))
 	if result.Applied {
 		t.Fatal("expected Applied=false when no PR is linked to the task")
 	}
@@ -63,8 +83,7 @@ func TestActionMergePR_NoLinkedPR(t *testing.T) {
 
 func TestActionCommentPR_MissingBody(t *testing.T) {
 	tc := setupPlugin(t)
-	cfg := map[string]string{"project_id": testProjectID}
-	result := tc.RunAction(automationActionCommentPR, actionReqWithConfig(cfg))
+	result := tc.RunAction(automationActionCommentPR, actionReqWithConfig(map[string]string{}))
 	if result.Applied {
 		t.Fatal("expected Applied=false for missing body")
 	}
@@ -75,30 +94,12 @@ func TestActionCommentPR_MissingBody(t *testing.T) {
 
 func TestActionCommentPR_NoLinkedPR(t *testing.T) {
 	tc := setupPlugin(t)
-	cfg := map[string]string{"project_id": testProjectID, "body": "looks good"}
+	cfg := map[string]string{"body": "looks good"}
 	result := tc.RunAction(automationActionCommentPR, actionReqWithConfig(cfg))
 	if result.Applied {
 		t.Fatal("expected Applied=false when no PR is linked to the task")
 	}
 	if result.Error == "" {
 		t.Fatal("expected an error message when no PR is linked")
-	}
-}
-
-func TestAutomationProjectID_Missing(t *testing.T) {
-	raw, _ := json.Marshal(map[string]string{})
-	if _, err := automationProjectID(raw); err == nil {
-		t.Fatal("expected an error for missing project_id")
-	}
-}
-
-func TestAutomationProjectID_Present(t *testing.T) {
-	raw, _ := json.Marshal(map[string]string{"project_id": testProjectID})
-	got, err := automationProjectID(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != testProjectID {
-		t.Fatalf("expected %s, got %s", testProjectID, got)
 	}
 }

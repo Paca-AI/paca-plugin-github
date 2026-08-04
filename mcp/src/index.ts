@@ -482,6 +482,30 @@ const tools: Tool[] = [
 		},
 	},
 	{
+		name: "github_link_branch_to_task",
+		description:
+			"Link an existing GitHub branch to a task (does not create the branch on GitHub).",
+		inputSchema: {
+			type: "object",
+			properties: {
+				projectId: projectIdProp,
+				taskId: taskIdProp,
+				repoId: {
+					type: "string",
+					description:
+						UUID_DESC.replace("%s", "linked repository") +
+						" Use github_list_linked_repos to get the repo ID.",
+				},
+				branch_name: {
+					type: "string",
+					description:
+						"The existing branch name (e.g., 'feature/my-branch').",
+				},
+			},
+			required: ["projectId", "taskId", "repoId", "branch_name"],
+		},
+	},
+	{
 		name: "github_list_task_branches",
 		description: "List branches linked to a task.",
 		inputSchema: {
@@ -706,6 +730,22 @@ const entry: PluginMCPEntry = {
 					);
 					return textResult(
 						`Branch created successfully:\n\nBranch: ${result.branch_name}\nRepository: ${result.repo_full_name}\nURL: ${result.html_url}`,
+					);
+				}
+
+				case "github_link_branch_to_task": {
+					const { projectId, taskId, repoId, branch_name } = args as {
+						projectId: string;
+						taskId: string;
+						repoId: string;
+						branch_name: string;
+					};
+					const branch = await api.pluginPost<TaskBranch>(
+						`projects/${projectId}/tasks/${taskId}/branches/link`,
+						{ repo_id: repoId, branch_name },
+					);
+					return textResult(
+						`Branch linked successfully:\n\n${formatBranch(branch)}`,
 					);
 				}
 

@@ -250,10 +250,21 @@
       },
       {
         "method": "POST",
-        "path": "/webhook",
+        "path": "/projects/:projectId/tasks/:taskId/branches/link",
         "middlewares": [
-          { "name": "optionalAuthn" }
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requirePermissions",
+            "scope": "project",
+            "permissions": ["tasks.write"]
+          }
         ]
+      },
+      {
+        "method": "POST",
+        "path": "/webhook",
+        "middlewares": [{ "name": "optionalAuthn" }]
       }
     ]
   },

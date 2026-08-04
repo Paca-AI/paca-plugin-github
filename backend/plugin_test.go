@@ -169,6 +169,61 @@ func TestGetPullRequestCIStatus_NotLinkedToTask(t *testing.T) {
 	}
 }
 
+func TestLinkBranchToTask_MissingBody(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID}).
+		WithJSONBody(map[string]string{})
+	res := tc.Call("POST", "/tasks/:taskId/branches/link", req)
+
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestLinkBranchToTask_MissingRepoID(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID}).
+		WithJSONBody(map[string]string{"branch_name": "dev"})
+	res := tc.Call("POST", "/tasks/:taskId/branches/link", req)
+
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestLinkBranchToTask_MissingBranchName(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID}).
+		WithJSONBody(map[string]string{"repo_id": "00000000-0000-0000-0000-000000000001"})
+	res := tc.Call("POST", "/tasks/:taskId/branches/link", req)
+
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestCreateBranch_MissingBranchName(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID}).
+		WithJSONBody(map[string]string{"repo_id": "00000000-0000-0000-0000-000000000001"})
+	res := tc.Call("POST", "/tasks/:taskId/branches", req)
+
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
+func TestCreateBranch_MissingRepoID(t *testing.T) {
+	tc := setupPlugin(t)
+	req := reqWithPathParams(map[string]string{"taskId": testTaskID}).
+		WithJSONBody(map[string]string{"branch_name": "dev"})
+	res := tc.Call("POST", "/tasks/:taskId/branches", req)
+
+	if res.StatusCode != 400 {
+		t.Fatalf("expected 400, got %d: %s", res.StatusCode, res.BodyString())
+	}
+}
+
 // ── overallCIState ─────────────────────────────────────────────────────────────
 
 func TestOverallCIState_NoChecks(t *testing.T) {

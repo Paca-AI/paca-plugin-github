@@ -10,6 +10,7 @@ import {
   GitMerge,
   GitPullRequest,
   GitPullRequestClosed,
+  Link2,
   Loader2,
   Plus,
   Terminal,
@@ -22,6 +23,7 @@ import {
   ErrorCode,
   getPluginErrorCode,
   type LinkedRepository,
+  linkBranchToTask,
   linkedReposKey,
   listLinkedRepositories,
   listTaskBranches,
@@ -754,6 +756,207 @@ function CreateBranchForm({
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function parseGitHubBranchUrl(
+  raw: string,
+): { fullName: string; branchName: string } | null {
+  try {
+    const url = new URL(raw.trim());
+    if (url.hostname !== "github.com") return null;
+    const parts = url.pathname.replace(/^\//, "").split("/");
+    if (parts.length < 4 || parts[2] !== "tree") return null;
+    const branchName = parts.slice(3).join("/");
+    if (!branchName) return null;
+    return { fullName: `${parts[0]}/${parts[1]}`, branchName };
+  } catch {
+    return null;
+  }
+}
+
+// ── Link branch form ──────────────────────────────────────────────────────────
+
+function LinkBranchForm({
+  api,
+  projectId,
+  taskId,
+  repos,
+  onDone,
+}: {
+  api: PluginApiClient;
+  projectId: string;
+  taskId: string;
+  repos: LinkedRepository[];
+  onDone: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedRepoId, setSelectedRepoId] = useState(
+    repos.length === 1 ? repos[0].id : "",
+  );
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const parsed = parseGitHubBranchUrl(value);
+  const urlMatchedRepo = parsed
+    ? (repos.find((r) => r.full_name === parsed.fullName) ?? null)
+    : null;
+  const effectiveRepoId = parsed ? (urlMatchedRepo?.id ?? "") : selectedRepoId;
+  const branchName = parsed ? parsed.branchName : value.trim();
+
+  const mutation = useMutation({
+    mutationFn: () => linkBranchToTask(api, taskId, effectiveRepoId, branchName),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: taskBranchesKey(projectId, taskId),
+      });
+      setValue("");
+      setError(null);
+      onDone();
+    },
+    onError: (err: unknown) => {
+      const code = getPluginErrorCode(err);
+      if (code === ErrorCode.GitHubIntegrationNotFound) {
+        setError("No GitHub token configured for this project.");
+        return;
+      }
+      if (code === ErrorCode.GitHubRepositoryNotFound) {
+        setError("Repository not found. It may have been unlinked.");
+        return;
+      }
+      if (code === ErrorCode.GitHubBranchNotFound) {
+        setError(
+          `Branch "${branchName}" was not found in the selected repository.`,
+        );
+        return;
+      }
+      if (code === ErrorCode.GitHubBranchAlreadyLinked) {
+        setError(`Branch "${branchName}" is already linked to this task.`);
+        return;
+      }
+      if (code === ErrorCode.GitHubTokenInsufficientPermissions) {
+        setError(
+          "Your GitHub token does not have permission to read branches. Update it in Project Settings > GitHub.",
+        );
+        return;
+      }
+      setError("Failed to link branch. Please try again.");
+    },
+  });
+
+  function submit() {
+    if (parsed) {
+      if (!urlMatchedRepo) {
+        setError(
+          `Repository "${parsed.fullName}" is not linked to this project.`,
+        );
+        return;
+      }
+    } else {
+      if (!effectiveRepoId) {
+        setError("Select a repository.");
+        return;
+      }
+      if (!branchName) {
+        setError("Enter a branch name or paste a GitHub branch URL.");
+        return;
+      }
+    }
+    mutation.mutate();
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border/50 bg-card px-3 py-3">
+      {/* Repository selector */}
+      <div>
+        <p className="text-xs text-muted-foreground mb-1">Repository</p>
+        <select
+          value={parsed ? (urlMatchedRepo?.id ?? "") : selectedRepoId}
+          onChange={(e) => {
+            setSelectedRepoId(e.target.value);
+            setError(null);
+          }}
+          disabled={mutation.isPending || !!parsed}
+          className="w-full rounded-md border border-border/60 bg-background px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        >
+          <option value="">Select repository…</option>
+          {repos.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.full_name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Branch name or URL */}
+      <div>
+        <p className="text-xs text-muted-foreground mb-1">
+          Branch name or GitHub URL
+        </p>
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => {
+            setValue(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") submit();
+            if (e.key === "Escape") onDone();
+          }}
+          placeholder="feature/foo or https://github.com/owner/repo/tree/feature/foo"
+          className={cn(
+            "w-full rounded-md border bg-background px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring",
+            error ? "border-destructive" : "border-border/60",
+          )}
+          spellCheck={false}
+          // biome-ignore lint/a11y/noAutofocus: intentional for inline form
+          autoFocus
+          disabled={mutation.isPending}
+        />
+        {parsed && urlMatchedRepo && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Will link branch{" "}
+            <span className="font-medium font-mono">
+              {parsed.branchName}
+            </span>{" "}
+            from <span className="font-medium">{urlMatchedRepo.full_name}</span>
+          </p>
+        )}
+      </div>
+
+      {error && (
+        <p className="text-xs text-destructive/80 leading-relaxed">
+          {error}
+        </p>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          type="button"
+          onClick={submit}
+          disabled={!value.trim() || mutation.isPending}
+          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 transition-colors"
+        >
+          {mutation.isPending ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : (
+            <Link2 className="size-3.5" />
+          )}
+          Link branch
+        </button>
+        <button
+          type="button"
+          onClick={onDone}
+          className="text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Branches section ──────────────────────────────────────────────────────────
 
 function BranchesSection({
@@ -774,7 +977,7 @@ function BranchesSection({
   canEdit: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const [creating, setCreating] = useState(false);
+  const [mode, setMode] = useState<"create" | "link" | null>(null);
 
   const { data: branches = [], isLoading } = useQuery<TaskBranch[]>({
     queryKey: taskBranchesKey(projectId, taskId),
@@ -828,13 +1031,13 @@ function BranchesSection({
                 <BranchRow key={branch.id} branch={branch} />
               ))}
 
-              {count === 0 && !creating && (
+              {count === 0 && mode === null && (
                 <p className="text-xs text-muted-foreground/50 italic py-1">
                   No branches linked yet.
                 </p>
               )}
 
-              {creating ? (
+              {mode === "create" && (
                 <CreateBranchForm
                   api={api}
                   projectId={projectId}
@@ -843,19 +1046,39 @@ function BranchesSection({
                   taskNumber={taskNumber}
                   taskTitle={taskTitle}
                   repos={linkedRepos}
-                  onDone={() => setCreating(false)}
+                  onDone={() => setMode(null)}
                 />
-              ) : (
-                canCreate && (
+              )}
+
+              {mode === "link" && (
+                <LinkBranchForm
+                  api={api}
+                  projectId={projectId}
+                  taskId={taskId}
+                  repos={linkedRepos}
+                  onDone={() => setMode(null)}
+                />
+              )}
+
+              {mode === null && canCreate && (
+                <div className="flex items-center gap-3">
                   <button
                     type="button"
                     className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors py-1"
-                    onClick={() => setCreating(true)}
+                    onClick={() => setMode("create")}
                   >
                     <GitBranch className="size-3.5" />
                     Create branch
                   </button>
-                )
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors py-1"
+                    onClick={() => setMode("link")}
+                  >
+                    <Link2 className="size-3.5" />
+                    Link existing branch
+                  </button>
+                </div>
               )}
             </>
           )}

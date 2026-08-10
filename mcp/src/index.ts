@@ -770,6 +770,51 @@ const entry: PluginMCPEntry = {
 			return errorResult(`GitHub plugin error: ${msg}`);
 		}
 	},
+
+	async getToolContext(
+		toolId: string,
+		args: Record<string, unknown>,
+		context: PluginMCPContext,
+	) {
+		if (toolId !== "get_task") return null;
+		const { projectId, taskId } = args as { projectId: string; taskId: string };
+
+		const api = new PluginAPIClient(context);
+		try {
+			const [branches, prs] = await Promise.all([
+				api.pluginGet<TaskBranch[]>(
+					`projects/${projectId}/tasks/${taskId}/branches`,
+				),
+				api.pluginGet<PullRequest[]>(
+					`projects/${projectId}/tasks/${taskId}/pull-requests`,
+				),
+			]);
+			if (branches.length === 0 && prs.length === 0) return null;
+
+			const lines = ["## GitHub"];
+			if (branches.length > 0) {
+				lines.push(
+					"",
+					"**Branches:**",
+					...branches.map((b) => `- ${b.branch_name}`),
+				);
+			}
+			if (prs.length > 0) {
+				lines.push(
+					"",
+					"**Pull Requests:**",
+					...prs.map(
+						(pr) => `- #${pr.pr_number} [${pr.state}] ${pr.title} — ${pr.html_url}`,
+					),
+				);
+			}
+			return lines.join("\n");
+		} catch {
+			// Best-effort enrichment — a transient failure here should not
+			// break the get_task response for the AI client.
+			return null;
+		}
+	},
 };
 
 export default entry;

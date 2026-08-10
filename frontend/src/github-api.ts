@@ -15,6 +15,7 @@ export const ErrorCode = {
   GitHubWebhookCreationFailed: "GITHUB_WEBHOOK_CREATION_FAILED",
   GitHubWebhookURLNotPublic: "GITHUB_WEBHOOK_URL_NOT_PUBLIC",
   GitHubBranchAlreadyLinked: "GITHUB_BRANCH_ALREADY_LINKED",
+  GitHubBranchNotFound: "GITHUB_BRANCH_NOT_FOUND",
   GitHubTokenInsufficientPermissions: "GITHUB_TOKEN_INSUFFICIENT_PERMISSIONS",
   BadRequest: "BAD_REQUEST",
 } as const;
@@ -236,5 +237,18 @@ export async function createBranch(
     PLUGIN_ID,
     `/projects/${api.projectId}/tasks/${taskId}/branches`,
     { repo_id: repoId, branch_name: branchName, source_branch: sourceBranch },
+  );
+}
+
+export async function linkBranchToTask(
+  api: PluginApiClient,
+  taskId: string,
+  repoId: string,
+  branchName: string,
+): Promise<TaskBranch> {
+  return api.pluginPost<TaskBranch>(
+    PLUGIN_ID,
+    `/projects/${api.projectId}/tasks/${taskId}/branches/link`,
+    { repo_id: repoId, branch_name: branchName },
   );
 }

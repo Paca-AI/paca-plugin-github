@@ -148,10 +148,16 @@ func (p *githubPlugin) linkBranchToTask(req *plugin.Request, res *plugin.Respons
 	ghc := newGHClient(token)
 	if err := ghc.branchExists(context.Background(), owner, repoName, b.BranchName); err != nil {
 		var apiErr *ghAPIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode == 404 {
-			apiError(res, 404, "GITHUB_BRANCH_NOT_FOUND",
-				fmt.Sprintf("Branch %q not found in %s/%s", b.BranchName, owner, repoName))
-			return
+		if errors.As(err, &apiErr) {
+			if apiErr.StatusCode == 404 {
+				apiError(res, 404, "GITHUB_BRANCH_NOT_FOUND",
+					fmt.Sprintf("Branch %q not found in %s/%s", b.BranchName, owner, repoName))
+				return
+			}
+			if apiErr.StatusCode == 403 {
+				apiError(res, 403, "GITHUB_TOKEN_INSUFFICIENT_PERMISSIONS", "Token does not have permission to read branches")
+				return
+			}
 		}
 		apiError(res, 502, "INTERNAL_ERROR", fmt.Sprintf("failed to verify branch: %s", err))
 		return

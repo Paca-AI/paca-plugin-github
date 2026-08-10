@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@paca-ai/plugin-sdk-mcp": "^0.1.0"
+    "@paca-ai/plugin-sdk-mcp": "^0.2.0"
   },
   "devDependencies": {
     "typescript": "^5.8.3",

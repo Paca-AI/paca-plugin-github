@@ -22,6 +22,12 @@ jobs:
         with:
           go-version: "1.24"
 
+      - name: Setup TinyGo
+        run: |
+          set -euo pipefail
+          curl -sL -o /tmp/tinygo.deb https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo_0.41.1_amd64.deb
+          sudo dpkg -i /tmp/tinygo.deb
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -32,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ../release/backend
-          GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o ../release/backend/github.wasm .
+          tinygo build -target=wasip1 -buildmode=c-shared -o ../release/backend/github.wasm .
 
       - name: Build frontend
         working-directory: frontend

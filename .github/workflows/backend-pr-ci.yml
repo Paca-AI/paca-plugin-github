@@ -66,8 +66,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: backend/go.sum
 
+      - name: Setup TinyGo
+        run: |
+          set -euo pipefail
+          curl -sL -o /tmp/tinygo.deb https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo_0.41.1_amd64.deb
+          sudo dpkg -i /tmp/tinygo.deb
+
       - name: Build WASM
-        run: GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o github.wasm .
+        run: tinygo build -target=wasip1 -buildmode=c-shared -o github.wasm .
 
   test:
     name: Tests

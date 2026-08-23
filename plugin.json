@@ -2,8 +2,8 @@
   "id": "com.paca.github",
   "displayName": "GitHub Integration",
   "description": "Integrates GitHub repositories, pull requests, and branches with Paca projects and tasks.",
-  "version": "0.3.3",
-  "minCoreVersion": "v0.12.2",
+  "version": "0.3.4",
+  "minCoreVersion": "v0.13.3",
   "capabilities": ["repository"],
   "permissions": ["db.read", "db.write"],
   "backend": {

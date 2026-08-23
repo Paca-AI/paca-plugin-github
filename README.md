@@ -193,8 +193,8 @@ cd backend
 # Run tests
 go test -v ./...
 
-# Build WASM binary (Go 1.24+)
-GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o github.wasm .
+# Build WASM binary (requires TinyGo — see https://tinygo.org/getting-started/install/)
+tinygo build -target=wasip1 -buildmode=c-shared -o github.wasm .
 ```
 
 ### Frontend

@@ -117,10 +117,10 @@ func (p *githubPlugin) getIntegration(req *plugin.Request, res *plugin.Response)
 func (p *githubPlugin) setToken(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 
-	type bodyT struct {
+	type setTokenBody struct {
 		Token string `json:"token"`
 	}
-	b, err := plugin.JSONBody[bodyT](req)
+	b, err := plugin.JSONBody[setTokenBody](req)
 	if err != nil || b.Token == "" {
 		apiError(res, 400, "BAD_REQUEST", "token is required")
 		return
@@ -277,11 +277,11 @@ func (p *githubPlugin) listRepositories(req *plugin.Request, res *plugin.Respons
 func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 
-	type bodyT struct {
+	type linkRepositoryBody struct {
 		Owner    string `json:"owner"`
 		RepoName string `json:"repo_name"`
 	}
-	b, err := plugin.JSONBody[bodyT](req)
+	b, err := plugin.JSONBody[linkRepositoryBody](req)
 	if err != nil || b.Owner == "" || b.RepoName == "" {
 		apiError(res, 400, "BAD_REQUEST", "owner and repo_name are required")
 		return

@@ -76,11 +76,11 @@ func (p *githubPlugin) linkPRToTask(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
 
-	type bodyT struct {
+	type linkPRToTaskBody struct {
 		RepoID   string `json:"repo_id"`
 		PRNumber int    `json:"pr_number"`
 	}
-	b, err := plugin.JSONBody[bodyT](req)
+	b, err := plugin.JSONBody[linkPRToTaskBody](req)
 	if err != nil || b.RepoID == "" || b.PRNumber == 0 {
 		apiError(res, 400, "BAD_REQUEST", "repo_id and pr_number are required")
 		return
@@ -210,14 +210,14 @@ func (p *githubPlugin) createPullRequest(req *plugin.Request, res *plugin.Respon
 	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
 
-	type bodyT struct {
+	type createPullRequestBody struct {
 		RepoID     string `json:"repo_id"`
 		Title      string `json:"title"`
 		HeadBranch string `json:"head_branch"`
 		BaseBranch string `json:"base_branch"`
 		Body       string `json:"body"`
 	}
-	b, err := plugin.JSONBody[bodyT](req)
+	b, err := plugin.JSONBody[createPullRequestBody](req)
 	if err != nil || b.RepoID == "" || b.Title == "" || b.HeadBranch == "" || b.BaseBranch == "" {
 		apiError(res, 400, "BAD_REQUEST", "repo_id, title, head_branch, and base_branch are required")
 		return
@@ -563,10 +563,10 @@ func (p *githubPlugin) addPullRequestComment(req *plugin.Request, res *plugin.Re
 	taskID := req.PathParam("taskId")
 	prID := req.PathParam("prId")
 
-	type bodyT struct {
+	type addPullRequestCommentBody struct {
 		Body string `json:"body"`
 	}
-	b, err := plugin.JSONBody[bodyT](req)
+	b, err := plugin.JSONBody[addPullRequestCommentBody](req)
 	if err != nil || b.Body == "" {
 		apiError(res, 400, "BAD_REQUEST", "body is required")
 		return
@@ -603,11 +603,11 @@ func (p *githubPlugin) createReview(req *plugin.Request, res *plugin.Response) {
 	taskID := req.PathParam("taskId")
 	prID := req.PathParam("prId")
 
-	type bodyT struct {
+	type createReviewBody struct {
 		Event string `json:"event"`
 		Body  string `json:"body"`
 	}
-	b, err := plugin.JSONBody[bodyT](req)
+	b, err := plugin.JSONBody[createReviewBody](req)
 	if err != nil {
 		apiError(res, 400, "BAD_REQUEST", "event is required")
 		return

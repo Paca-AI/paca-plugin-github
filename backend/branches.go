@@ -28,12 +28,12 @@ func (p *githubPlugin) createBranch(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
 
-	type bodyT struct {
+	type createBranchBody struct {
 		RepoID       string `json:"repo_id"`
 		BranchName   string `json:"branch_name"`
 		SourceBranch string `json:"source_branch"`
 	}
-	b, err := plugin.JSONBody[bodyT](req)
+	b, err := plugin.JSONBody[createBranchBody](req)
 	if err != nil || b.RepoID == "" || b.BranchName == "" {
 		apiError(res, 400, "BAD_REQUEST", "repo_id and branch_name are required")
 		return
@@ -113,11 +113,11 @@ func (p *githubPlugin) linkBranchToTask(req *plugin.Request, res *plugin.Respons
 	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
 
-	type bodyT struct {
+	type linkBranchToTaskBody struct {
 		RepoID     string `json:"repo_id"`
 		BranchName string `json:"branch_name"`
 	}
-	b, err := plugin.JSONBody[bodyT](req)
+	b, err := plugin.JSONBody[linkBranchToTaskBody](req)
 	if err != nil || b.RepoID == "" || b.BranchName == "" {
 		apiError(res, 400, "BAD_REQUEST", "repo_id and branch_name are required")
 		return

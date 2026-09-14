@@ -98,6 +98,30 @@ func apiError(res *plugin.Response, code int, errCode, message string) {
 	})
 }
 
+// taskBelongsToProject verifies taskID exists, is not deleted, and belongs
+// to projectID — writing a 404 and returning false otherwise. Every handler
+// that accepts a :taskId path param and uses it to read or write
+// project-scoped GitHub data (PRs, branches) must call this first: the
+// host's route-level permission check only verifies the caller belongs to
+// the project in the URL, it has no way to also verify an arbitrary path
+// param like :taskId belongs to that same project — that's this plugin's
+// job, the same role resolvePRForTask plays for PR-specific resources.
+func (p *githubPlugin) taskBelongsToProject(taskID, projectID string, res *plugin.Response) bool {
+	result, err := p.db.Query(
+		`SELECT id FROM tasks WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL`,
+		taskID, projectID,
+	)
+	if err != nil {
+		apiError(res, 500, "INTERNAL_ERROR", err.Error())
+		return false
+	}
+	if len(result.Rows) == 0 {
+		apiError(res, 404, "TASK_NOT_FOUND", "Task not found")
+		return false
+	}
+	return true
+}
+
 // ─── event handlers ──────────────────────────────────────────────────────────
 
 // handleTaskDeleted cleans up branches and PR links when a task is deleted.

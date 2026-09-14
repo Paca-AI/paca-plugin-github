@@ -30,26 +30,43 @@ type pullRequestResponse struct {
 // ─── GET /tasks/:taskId/github/pull-requests ──────────────────────────────────
 
 func (p *githubPlugin) listTaskPRs(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
+	if !p.taskBelongsToProject(taskID, projectID, res) {
+		return
+	}
 
-	result, err := p.db.Query(`
-		SELECT pr.id, pr.project_id, pr.repo_id, pr.pr_number, pr.github_pr_id,
-		       pr.title, pr.state, pr.html_url, pr.head_branch, pr.base_branch,
-		       pr.author, pr.merged_at, pr.created_at, pr.updated_at
-		FROM github_pull_requests pr
-		JOIN github_task_pr_links l ON l.pull_request_id = pr.id
-		WHERE l.task_id = $1
-		ORDER BY l.created_at ASC
-	`, taskID)
+	linkResult, err := p.db.Query(
+		`SELECT pull_request_id FROM github_task_pr_links WHERE task_id = $1 ORDER BY created_at ASC`,
+		taskID,
+	)
 	if err != nil {
 		apiError(res, 500, "INTERNAL_ERROR", err.Error())
 		return
 	}
 
-	items := make([]pullRequestResponse, 0, len(result.Rows))
-	for _, row := range result.Rows {
-		sc := newRowScanner(result.Columns, row)
-		pr := pullRequestResponse{
+	// No SQL JOIN here (resolved via a separate query per link instead) —
+	// consistent with resolvePRForTask's style elsewhere in this plugin.
+	// taskBelongsToProject above already closes the main vector (a foreign
+	// taskId); re-verifying each linked PR's own project_id here is
+	// defense-in-depth against any row a pre-fix caller might have already
+	// linked across projects.
+	items := make([]pullRequestResponse, 0, len(linkResult.Rows))
+	for _, linkRow := range linkResult.Rows {
+		prID := newRowScanner(linkResult.Columns, linkRow).str("pull_request_id")
+		prResult, pErr := p.db.Query(
+			`SELECT id, project_id, repo_id, pr_number, github_pr_id, title, state, html_url, head_branch, base_branch, author, merged_at, created_at, updated_at FROM github_pull_requests WHERE id = $1 AND project_id = $2`,
+			prID, projectID,
+		)
+		if pErr != nil {
+			apiError(res, 500, "INTERNAL_ERROR", pErr.Error())
+			return
+		}
+		if len(prResult.Rows) == 0 {
+			continue
+		}
+		sc := newRowScanner(prResult.Columns, prResult.Rows[0])
+		items = append(items, pullRequestResponse{
 			ID:         sc.str("id"),
 			ProjectID:  sc.str("project_id"),
 			RepoID:     sc.str("repo_id"),
@@ -64,8 +81,7 @@ func (p *githubPlugin) listTaskPRs(req *plugin.Request, res *plugin.Response) {
 			MergedAt:   sc.strPtr("merged_at"),
 			CreatedAt:  sc.str("created_at"),
 			UpdatedAt:  sc.str("updated_at"),
-		}
-		items = append(items, pr)
+		})
 	}
 	ok(res, items)
 }
@@ -75,6 +91,9 @@ func (p *githubPlugin) listTaskPRs(req *plugin.Request, res *plugin.Response) {
 func (p *githubPlugin) linkPRToTask(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
+	if !p.taskBelongsToProject(taskID, projectID, res) {
+		return
+	}
 
 	type linkPRToTaskBody struct {
 		RepoID   string `json:"repo_id"`
@@ -209,6 +228,9 @@ func (p *githubPlugin) linkPRToTask(req *plugin.Request, res *plugin.Response) {
 func (p *githubPlugin) createPullRequest(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
+	if !p.taskBelongsToProject(taskID, projectID, res) {
+		return
+	}
 
 	type createPullRequestBody struct {
 		RepoID     string `json:"repo_id"`
@@ -334,8 +356,28 @@ func (p *githubPlugin) createPullRequest(req *plugin.Request, res *plugin.Respon
 // ─── DELETE /tasks/:taskId/github/pull-requests/:prId ────────────────────────
 
 func (p *githubPlugin) unlinkPRFromTask(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
 	prID := req.PathParam("prId")
+	if !p.taskBelongsToProject(taskID, projectID, res) {
+		return
+	}
+
+	// Re-verify the PR itself belongs to the caller's project (not just the
+	// task) before deleting the link — defense-in-depth against any link a
+	// pre-fix caller might have already created across projects.
+	prResult, err := p.db.Query(
+		`SELECT id FROM github_pull_requests WHERE id = $1 AND project_id = $2`,
+		prID, projectID,
+	)
+	if err != nil {
+		apiError(res, 500, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	if len(prResult.Rows) == 0 {
+		apiError(res, 404, "GITHUB_PR_LINK_NOT_FOUND", "Pull request link not found")
+		return
+	}
 
 	rowsAffected, err := p.db.Exec(
 		`DELETE FROM github_task_pr_links WHERE task_id = $1 AND pull_request_id = $2`,

@@ -19,6 +19,12 @@ var branchTaskRefRe = regexp.MustCompile(`(?i)\b([A-Z][A-Z0-9]{1,19})-(\d{1,6})\
 // ─── POST /webhook ────────────────────────────────────────────────────────────
 
 func (p *githubPlugin) receiveWebhook(req *plugin.Request, res *plugin.Response) {
+	// projectId comes from the URL the integration registered with GitHub
+	// (.../projects/:projectId/webhook) — this route has no requirePermissions
+	// middleware (GitHub itself calls it, with no Paca auth), so
+	// req.Caller.ProjectID is never populated here; the path segment is the
+	// only source of truth for which project this delivery is for.
+	projectID := req.PathParam("projectId")
 	event := req.Headers["X-Github-Event"]
 	signature := req.Headers["X-Hub-Signature-256"]
 
@@ -35,20 +41,27 @@ func (p *githubPlugin) receiveWebhook(req *plugin.Request, res *plugin.Response)
 	}
 
 	// Always 204 so GitHub does not retry on application errors.
-	if err := p.handleWebhookEvent(repoFullName, event, signature, body); err != nil {
+	if err := p.handleWebhookEvent(projectID, repoFullName, event, signature, body); err != nil {
 		p.log.Error("github: webhook handler error: " + err.Error())
 	}
 	res.NoContent()
 }
 
-func (p *githubPlugin) handleWebhookEvent(repoFullName, event, signature string, payload []byte) error {
+func (p *githubPlugin) handleWebhookEvent(projectID, repoFullName, event, signature string, payload []byte) error {
 	p.log.Info("github: webhook received, repo=" + repoFullName + ", event=" + event)
 
-	// Look up the repository by full name.
-	result, err := p.db.Query(`
-		SELECT id, project_id, integration_id, owner, repo_name, full_name, default_branch, webhook_secret_enc
-		FROM github_repositories WHERE full_name = $1
-	`, repoFullName)
+	// Look up the repository by (project_id, full_name) — full_name alone is
+	// only unique per-project (two projects can legitimately link the same
+	// repo), so scoping by the URL's own project_id avoids picking an
+	// arbitrary row when that happens; the previous full_name-only lookup
+	// could resolve to a different project's row, using its secret to
+	// verify a delivery meant for this project (which then just fails
+	// closed on the signature check) or its repo/default_branch for event
+	// processing.
+	result, err := p.db.Query(
+		`SELECT id, project_id, integration_id, owner, repo_name, full_name, default_branch, webhook_secret_enc FROM github_repositories WHERE full_name = $1 AND project_id = $2`,
+		repoFullName, projectID,
+	)
 	if err != nil {
 		p.log.Error("github: failed to query repository: " + err.Error() + ", repo=" + repoFullName)
 		return err
@@ -59,20 +72,25 @@ func (p *githubPlugin) handleWebhookEvent(repoFullName, event, signature string,
 	}
 	sc := newRowScanner(result.Columns, result.Rows[0])
 	repoID := sc.str("id")
-	projectID := sc.str("project_id")
+	projectID = sc.str("project_id")
 	webhookSecretEnc := sc.str("webhook_secret_enc")
 
-	// Verify HMAC signature.
-	if webhookSecretEnc != "" {
-		secret, dErr := p.decrypt(webhookSecretEnc)
-		if dErr != nil {
-			p.log.Error("github: failed to decrypt webhook secret: " + dErr.Error() + ", repo=" + repoFullName)
-			return dErr
-		}
-		if !verifyHMAC(payload, secret, signature) {
-			p.log.Info("github: invalid webhook signature, repo=" + repoFullName)
-			return nil // silently drop invalid signatures
-		}
+	// Verify HMAC signature. A missing secret fails closed rather than
+	// skipping verification — an unsigned/unverifiable delivery must never
+	// be trusted, even though every repo linked through the normal API
+	// always has a secret generated for it today.
+	if webhookSecretEnc == "" {
+		p.log.Error("github: repository has no webhook secret configured, refusing to process delivery, repo=" + repoFullName)
+		return nil
+	}
+	secret, dErr := p.decrypt(webhookSecretEnc)
+	if dErr != nil {
+		p.log.Error("github: failed to decrypt webhook secret: " + dErr.Error() + ", repo=" + repoFullName)
+		return dErr
+	}
+	if !verifyHMAC(payload, secret, signature) {
+		p.log.Info("github: invalid webhook signature, repo=" + repoFullName)
+		return nil // silently drop invalid signatures
 	}
 
 	switch event {

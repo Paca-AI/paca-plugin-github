@@ -27,6 +27,9 @@ type createBranchResponse struct {
 func (p *githubPlugin) createBranch(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
+	if !p.taskBelongsToProject(taskID, projectID, res) {
+		return
+	}
 
 	type createBranchBody struct {
 		RepoID       string `json:"repo_id"`
@@ -112,6 +115,9 @@ func (p *githubPlugin) createBranch(req *plugin.Request, res *plugin.Response) {
 func (p *githubPlugin) linkBranchToTask(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
+	if !p.taskBelongsToProject(taskID, projectID, res) {
+		return
+	}
 
 	type linkBranchToTaskBody struct {
 		RepoID     string `json:"repo_id"`
@@ -199,24 +205,48 @@ func (p *githubPlugin) linkBranchToTask(req *plugin.Request, res *plugin.Respons
 // ─── GET /tasks/:taskId/github/branches ───────────────────────────────────────
 
 func (p *githubPlugin) listTaskBranches(req *plugin.Request, res *plugin.Response) {
+	projectID := req.Caller.ProjectID
 	taskID := req.PathParam("taskId")
+	if !p.taskBelongsToProject(taskID, projectID, res) {
+		return
+	}
 
-	result, err := p.db.Query(`
-		SELECT id, task_id, repo_id, branch_name, created_at
-		FROM github_task_branches WHERE task_id = $1 ORDER BY created_at ASC
-	`, taskID)
+	result, err := p.db.Query(
+		`SELECT id, task_id, repo_id, branch_name, created_at FROM github_task_branches WHERE task_id = $1 ORDER BY created_at ASC`,
+		taskID,
+	)
 	if err != nil {
 		apiError(res, 500, "INTERNAL_ERROR", err.Error())
 		return
 	}
 
+	// github_task_branches has no project_id column of its own — only
+	// repo_id, which links to github_repositories (which does). Re-verify
+	// each branch's repo against the caller's project as defense-in-depth:
+	// taskBelongsToProject above already closes the main vector (a foreign
+	// taskId), but this also protects against any row a pre-fix caller
+	// might have already linked across projects. No SQL JOIN here (kept
+	// consistent with resolvePRForTask's style elsewhere in this plugin,
+	// which also resolves through separate single-table queries).
 	items := make([]taskBranchResponse, 0, len(result.Rows))
 	for _, row := range result.Rows {
 		sc := newRowScanner(result.Columns, row)
+		repoID := sc.str("repo_id")
+		repoResult, rErr := p.db.Query(
+			`SELECT id FROM github_repositories WHERE id = $1 AND project_id = $2`,
+			repoID, projectID,
+		)
+		if rErr != nil {
+			apiError(res, 500, "INTERNAL_ERROR", rErr.Error())
+			return
+		}
+		if len(repoResult.Rows) == 0 {
+			continue
+		}
 		items = append(items, taskBranchResponse{
 			ID:         sc.str("id"),
 			TaskID:     sc.str("task_id"),
-			RepoID:     sc.str("repo_id"),
+			RepoID:     repoID,
 			BranchName: sc.str("branch_name"),
 			CreatedAt:  sc.str("created_at"),
 		})

@@ -6,6 +6,14 @@
   "minCoreVersion": "v0.13.3",
   "capabilities": ["repository"],
   "permissions": ["db.read", "db.write"],
+  "customPermissions": [
+    {
+      "key": "github.manage",
+      "label": "Manage GitHub integration",
+      "description": "View and manage this project's GitHub integration: connect or disconnect the access token, and link or unlink repositories. Does not affect PR/branch info on individual tasks, which any project member with task access can already see.",
+      "scope": "project"
+    }
+  ],
   "backend": {
     "allowedConfigKeys": ["ENCRYPTION_KEY", "PUBLIC_URL"],
     "allowedOutboundDomains": ["api.github.com"],
@@ -23,7 +31,7 @@
           {
             "name": "requirePermissions",
             "scope": "project",
-            "permissions": ["projects.read"]
+            "permissions": ["github.manage"]
           }
         ]
       },
@@ -36,7 +44,7 @@
           {
             "name": "requirePermissions",
             "scope": "project",
-            "permissions": ["projects.write"]
+            "permissions": ["github.manage"]
           }
         ]
       },
@@ -49,7 +57,7 @@
           {
             "name": "requirePermissions",
             "scope": "project",
-            "permissions": ["projects.write"]
+            "permissions": ["github.manage"]
           }
         ]
       },
@@ -62,7 +70,7 @@
           {
             "name": "requirePermissions",
             "scope": "project",
-            "permissions": ["projects.read"]
+            "permissions": ["github.manage"]
           }
         ]
       },
@@ -75,7 +83,7 @@
           {
             "name": "requirePermissions",
             "scope": "project",
-            "permissions": ["projects.read"]
+            "permissions": ["github.manage"]
           }
         ]
       },
@@ -88,7 +96,7 @@
           {
             "name": "requirePermissions",
             "scope": "project",
-            "permissions": ["projects.write"]
+            "permissions": ["github.manage"]
           }
         ]
       },
@@ -101,7 +109,7 @@
           {
             "name": "requirePermissions",
             "scope": "project",
-            "permissions": ["projects.write"]
+            "permissions": ["github.manage"]
           }
         ]
       },
@@ -114,7 +122,7 @@
           {
             "name": "requirePermissions",
             "scope": "project",
-            "permissions": ["projects.read"]
+            "permissions": ["github.manage"]
           }
         ]
       },
@@ -263,7 +271,7 @@
       },
       {
         "method": "POST",
-        "path": "/webhook",
+        "path": "/projects/:projectId/webhook",
         "middlewares": [{ "name": "optionalAuthn" }]
       }
     ]
@@ -275,7 +283,8 @@
         "point": "project.settings.tab",
         "component": "GitHubSettingsTab",
         "label": "GitHub",
-        "order": 100
+        "order": 100,
+        "requiredPermission": "github.manage"
       },
       {
         "point": "task.detail.section",

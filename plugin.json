@@ -8,7 +8,7 @@
   "permissions": ["db.read", "db.write"],
   "customPermissions": [
     {
-      "key": "github.manage",
+      "key": "github:manage",
       "label": "Manage GitHub integration",
       "description": "View and manage this project's GitHub integration: connect or disconnect the access token, and link or unlink repositories. Does not affect PR/branch info on individual tasks, which any project member with task access can already see.",
       "scope": "project"
@@ -29,9 +29,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["github.manage"]
+            "actions": ["github:manage"]
           }
         ]
       },
@@ -42,9 +42,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["github.manage"]
+            "actions": ["github:manage"]
           }
         ]
       },
@@ -55,9 +55,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["github.manage"]
+            "actions": ["github:manage"]
           }
         ]
       },
@@ -68,9 +68,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["github.manage"]
+            "actions": ["github:manage"]
           }
         ]
       },
@@ -81,9 +81,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["github.manage"]
+            "actions": ["github:manage"]
           }
         ]
       },
@@ -94,9 +94,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["github.manage"]
+            "actions": ["github:manage"]
           }
         ]
       },
@@ -107,9 +107,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["github.manage"]
+            "actions": ["github:manage"]
           }
         ]
       },
@@ -120,9 +120,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["github.manage"]
+            "actions": ["github:manage"]
           }
         ]
       },
@@ -133,9 +133,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.read"]
+            "actions": ["tasks:read"]
           }
         ]
       },
@@ -146,9 +146,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.write"]
+            "actions": ["tasks:write"]
           }
         ]
       },
@@ -159,9 +159,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.write"]
+            "actions": ["tasks:write"]
           }
         ]
       },
@@ -172,9 +172,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.write"]
+            "actions": ["tasks:write"]
           }
         ]
       },
@@ -185,9 +185,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.read"]
+            "actions": ["tasks:read"]
           }
         ]
       },
@@ -198,9 +198,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.read"]
+            "actions": ["tasks:read"]
           }
         ]
       },
@@ -211,9 +211,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.write"]
+            "actions": ["tasks:write"]
           }
         ]
       },
@@ -224,9 +224,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.write"]
+            "actions": ["tasks:write"]
           }
         ]
       },
@@ -237,9 +237,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.read"]
+            "actions": ["tasks:read"]
           }
         ]
       },
@@ -250,9 +250,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.write"]
+            "actions": ["tasks:write"]
           }
         ]
       },
@@ -263,9 +263,9 @@
           { "name": "optionalAuthn" },
           { "name": "requireFreshPassword" },
           {
-            "name": "requirePermissions",
+            "name": "requireActions",
             "scope": "project",
-            "permissions": ["tasks.write"]
+            "actions": ["tasks:write"]
           }
         ]
       },
@@ -284,7 +284,7 @@
         "component": "GitHubSettingsTab",
         "label": "GitHub",
         "order": 100,
-        "requiredPermission": "github.manage"
+        "requiredPermission": "github:manage"
       },
       {
         "point": "task.detail.section",

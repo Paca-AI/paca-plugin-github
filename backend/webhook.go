@@ -20,7 +20,7 @@ var branchTaskRefRe = regexp.MustCompile(`(?i)\b([A-Z][A-Z0-9]{1,19})-(\d{1,6})\
 
 func (p *githubPlugin) receiveWebhook(req *plugin.Request, res *plugin.Response) {
 	// projectId comes from the URL the integration registered with GitHub
-	// (.../projects/:projectId/webhook) — this route has no requirePermissions
+	// (.../projects/:projectId/webhook) — this route has no requireActions
 	// middleware (GitHub itself calls it, with no Paca auth), so
 	// req.Caller.ProjectID is never populated here; the path segment is the
 	// only source of truth for which project this delivery is for.

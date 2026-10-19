@@ -436,9 +436,9 @@ func TestListTaskPRs_SkipsLinkFromAnotherProject(t *testing.T) {
 // can't distinguish "accepted" from "rejected" the way it can for the
 // authenticated API routes elsewhere in this file. These tests instead
 // assert on tc.Log (plugintest.CapturingLogger), using the distinct log
-// line each outcome takes — an event that reaches handleWebhookEvent's
-// `default:` case only gets there after signature verification succeeds,
-// which is what makes "unhandled event type" a reliable positive signal.
+// line each outcome takes — "handling pull_request event" is only logged by
+// handleWebhookEvent, which runs after signature verification succeeds, so it
+// is a reliable positive signal that the delivery was actually dispatched.
 
 const testEncryptionKey = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 64 hex chars = 32 bytes
 
@@ -449,7 +449,7 @@ func signedWebhookRequest(projectID string, payload []byte, secret string) plugi
 	return plugintest.Request{
 		PathParams: map[string]string{"projectId": projectID},
 		Headers: map[string]string{
-			"X-Github-Event":      "workflow_run", // any type receiveWebhook doesn't specifically handle
+			"X-Github-Event":      "pull_request",
 			"X-Hub-Signature-256": sig,
 		},
 		Body: payload,
@@ -497,7 +497,7 @@ func TestReceiveWebhook_ScopesRepositoryLookupToURLProject(t *testing.T) {
 	if tc.Log.HasMessage("invalid webhook signature") {
 		t.Fatal("signature verified against the wrong project's secret — repository lookup is not scoped to the URL's project")
 	}
-	if !tc.Log.HasMessage("unhandled event type") {
+	if !tc.Log.HasMessage("handling pull_request event") {
 		t.Fatalf("expected signature verification to succeed and reach event dispatch; log entries: %+v", tc.Log.Entries())
 	}
 }
@@ -517,7 +517,7 @@ func TestReceiveWebhook_RejectsMissingSecret(t *testing.T) {
 	payload := []byte(`{"repository":{"full_name":"octocat/hello-world"}}`)
 	req := plugintest.Request{
 		PathParams: map[string]string{"projectId": testProjectID},
-		Headers:    map[string]string{"X-Github-Event": "workflow_run", "X-Hub-Signature-256": "sha256=deadbeef"},
+		Headers:    map[string]string{"X-Github-Event": "pull_request", "X-Hub-Signature-256": "sha256=deadbeef"},
 		Body:       payload,
 	}
 	res := tc.Call("POST", "/webhook", req)
@@ -527,7 +527,7 @@ func TestReceiveWebhook_RejectsMissingSecret(t *testing.T) {
 	if !tc.Log.HasMessage("no webhook secret configured") {
 		t.Fatalf("expected the missing-secret delivery to be refused before dispatch; log entries: %+v", tc.Log.Entries())
 	}
-	if tc.Log.HasMessage("unhandled event type") {
+	if tc.Log.HasMessage("handling pull_request event") {
 		t.Fatal("delivery with no configured secret reached event dispatch — HMAC verification was skipped instead of failing closed")
 	}
 }

@@ -111,10 +111,12 @@ On linked repositories, GitHub webhooks are configured for:
 
 - push
 - pull_request
-- check_run
 
 Current behavior includes:
 
+- Dropping any event other than `pull_request`/`push` before the repository
+  lookup, so a hook left subscribed to `check_run` (one delivery per CI job
+  per state) costs nothing.
 - Verifying X-Hub-Signature-256 with the stored webhook secret.
 - Caching/updating pull request state in plugin tables.
 - Auto-linking PRs when opened/reopened from a branch already linked to a task.

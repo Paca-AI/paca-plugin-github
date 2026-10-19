@@ -13,6 +13,19 @@ import (
 	plugin "github.com/Paca-AI/plugin-sdk-go"
 )
 
+// handlesWebhookEvent reports whether this plugin processes event at all.
+// The set is deliberately closed: anything else is dropped before the
+// repository lookup, so a subscription that grows on GitHub's side cannot
+// make every delivery pay for a database query.
+func handlesWebhookEvent(event string) bool {
+	switch event {
+	case "pull_request", "push":
+		return true
+	default:
+		return false
+	}
+}
+
 // branchTaskRefRe matches a task-ID prefix in a branch name (e.g. "PROJ-42").
 var branchTaskRefRe = regexp.MustCompile(`(?i)\b([A-Z][A-Z0-9]{1,19})-(\d{1,6})\b`)
 
@@ -30,6 +43,17 @@ func (p *githubPlugin) receiveWebhook(req *plugin.Request, res *plugin.Response)
 
 	body := req.Body
 	if len(body) == 0 {
+		res.NoContent()
+		return
+	}
+
+	// Only the two events this plugin acts on get any further work. A hook
+	// created before this gate existed is still subscribed to check_run, and
+	// GitHub sends one such delivery per CI job per state — each of which
+	// would otherwise cost a repository lookup and an HMAC verification
+	// before landing in handleWebhookEvent's default branch.
+	if !handlesWebhookEvent(event) {
+		p.log.Info("github: ignoring event this plugin does not handle, event=" + event)
 		res.NoContent()
 		return
 	}

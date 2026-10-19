@@ -338,7 +338,7 @@ func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response)
 	webhookSecret := hex.EncodeToString(secretBytes)
 
 	webhookID, err := ghc.createWebhook(context.Background(), ghRepo.Owner.Login, ghRepo.Name, webhookURL, webhookSecret,
-		[]string{"push", "pull_request", "check_run"})
+		[]string{"push", "pull_request"})
 	if err != nil {
 		var apiErr *ghAPIError
 		if errors.As(err, &apiErr) && isWebhookURLNotPublic(apiErr) {

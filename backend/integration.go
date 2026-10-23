@@ -18,6 +18,12 @@ type integrationResponse struct {
 	Connected bool    `json:"connected"`
 	CreatedAt *string `json:"created_at,omitempty"`
 	UpdatedAt *string `json:"updated_at,omitempty"`
+	// AuthType is "pat" or "app". For "app", the fields below describe the
+	// bound installation.
+	AuthType       string `json:"auth_type,omitempty"`
+	InstallationID string `json:"installation_id,omitempty"`
+	AppName        string `json:"app_name,omitempty"`
+	AccountLogin   string `json:"account_login,omitempty"`
 }
 
 // accessibleRepoResponse is returned by GET /integration/accessible-repos.
@@ -68,21 +74,18 @@ func webhookURLFromPublicURL(cfg *plugin.Config, projectID string) (string, erro
 	return fmt.Sprintf("%s/api/v1/plugins/%s/projects/%s/webhook", base, githubPluginID, projectID), nil
 }
 
-// ─── Helper: decrypt PAT for a project ───────────────────────────────────────
+// ─── Helper: credential for a project (PAT or App installation token) ────────
 
 func (p *githubPlugin) decryptToken(projectID string) (string, error) {
-	result, err := p.db.Query(
-		`SELECT access_token_enc FROM github_integrations WHERE project_id = $1`,
-		projectID,
-	)
-	if err != nil {
-		return "", err
-	}
-	if len(result.Rows) == 0 {
-		return "", &appError{code: "GITHUB_INTEGRATION_NOT_FOUND", status: 404, msg: "GitHub integration not found"}
-	}
-	enc := newRowScanner(result.Columns, result.Rows[0]).str("access_token_enc")
-	return p.decrypt(enc)
+	token, _, err := p.resolveCredential(projectID)
+	return token, err
+}
+
+// decryptTokenFor is decryptToken for a call made by a specific account, so
+// an agent with a mapped GitHub identity acts as that identity.
+func (p *githubPlugin) decryptTokenFor(projectID, accountID string) (string, error) {
+	token, _, err := p.resolveCredentialFor(projectID, accountID)
+	return token, err
 }
 
 // ─── GET /integration ────────────────────────────────────────────────────────
@@ -90,7 +93,7 @@ func (p *githubPlugin) decryptToken(projectID string) (string, error) {
 func (p *githubPlugin) getIntegration(req *plugin.Request, res *plugin.Response) {
 	projectID := req.Caller.ProjectID
 	result, err := p.db.Query(
-		`SELECT project_id, created_at, updated_at FROM github_integrations WHERE project_id = $1`,
+		`SELECT project_id, auth_type, installation_id, created_at, updated_at FROM github_integrations WHERE project_id = $1`,
 		projectID,
 	)
 	if err != nil {
@@ -104,12 +107,30 @@ func (p *githubPlugin) getIntegration(req *plugin.Request, res *plugin.Response)
 	sc := newRowScanner(result.Columns, result.Rows[0])
 	ca := sc.str("created_at")
 	ua := sc.str("updated_at")
-	ok(res, integrationResponse{
+	out := integrationResponse{
 		ProjectID: sc.str("project_id"),
 		Connected: true,
 		CreatedAt: &ca,
 		UpdatedAt: &ua,
-	})
+		AuthType:  sc.str("auth_type"),
+	}
+	if out.AuthType == "" {
+		out.AuthType = authTypePAT
+	}
+	if out.AuthType == authTypeApp {
+		out.InstallationID = sc.str("installation_id")
+		if out.InstallationID == "" {
+			// The installation was removed (app deleted/uninstalled).
+			out.Connected = false
+		} else if r, qErr := p.db.Query(`
+			SELECT i.account_login, a.name AS app_name FROM github_app_installations i
+			JOIN github_apps a ON a.id = i.app_id WHERE i.id = $1`, out.InstallationID); qErr == nil && len(r.Rows) > 0 {
+			isc := newRowScanner(r.Columns, r.Rows[0])
+			out.AppName = isc.str("app_name")
+			out.AccountLogin = isc.str("account_login")
+		}
+	}
+	ok(res, out)
 }
 
 // ─── POST /integration/token ─────────────────────────────────────────────────
@@ -144,11 +165,23 @@ func (p *githubPlugin) setToken(req *plugin.Request, res *plugin.Response) {
 		return
 	}
 
+	// Repos linked through an App have no per-repo webhooks, so they cannot
+	// simply be re-pointed at a PAT.
+	if pa, aErr := p.loadProjectAuth(projectID); aErr == nil && pa.authType == authTypeApp {
+		if linked, qErr := p.db.Query(`SELECT id FROM github_repositories WHERE project_id = $1`, projectID); qErr == nil && len(linked.Rows) > 0 {
+			apiError(res, 409, "GITHUB_UNLINK_REPOS_FIRST",
+				"Unlink this project's repositories before changing how it connects to GitHub")
+			return
+		}
+	}
+
 	now := nowStr()
 	_, err = p.db.Exec(`
-		INSERT INTO github_integrations (project_id, access_token_enc, created_at, updated_at)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (project_id) DO UPDATE SET access_token_enc = EXCLUDED.access_token_enc, updated_at = EXCLUDED.updated_at
+		INSERT INTO github_integrations (project_id, access_token_enc, auth_type, installation_id, created_at, updated_at)
+		VALUES ($1, $2, 'pat', NULL, $3, $4)
+		ON CONFLICT (project_id) DO UPDATE SET
+			access_token_enc = EXCLUDED.access_token_enc, auth_type = 'pat', installation_id = NULL,
+			updated_at = EXCLUDED.updated_at
 	`, projectID, enc, now, now)
 	if err != nil {
 		apiError(res, 500, "INTERNAL_ERROR", err.Error())
@@ -199,6 +232,7 @@ func (p *githubPlugin) deleteToken(req *plugin.Request, res *plugin.Response) {
 		}
 	}
 
+	_, _ = p.db.Exec(`DELETE FROM github_agent_identities WHERE project_id = $1`, projectID)
 	_, execErr := p.db.Exec(`DELETE FROM github_integrations WHERE project_id = $1`, projectID)
 	if execErr != nil {
 		apiError(res, 500, "INTERNAL_ERROR", execErr.Error())
@@ -219,7 +253,12 @@ func (p *githubPlugin) listAccessibleRepos(req *plugin.Request, res *plugin.Resp
 	}
 
 	ghc := newGHClient(token)
-	repos, err := ghc.listRepositories(context.Background())
+	var repos []ghRepository
+	if pa, aErr := p.loadProjectAuth(projectID); aErr == nil && pa.authType == authTypeApp {
+		repos, err = ghc.listInstallationRepositories(context.Background())
+	} else {
+		repos, err = ghc.listRepositories(context.Background())
+	}
 	if err != nil {
 		apiError(res, 502, "INTERNAL_ERROR", fmt.Sprintf("failed to list repositories: %s", err))
 		return
@@ -252,6 +291,13 @@ func (p *githubPlugin) listRepositories(req *plugin.Request, res *plugin.Respons
 		return
 	}
 
+	// Repos linked through an App are covered by the App's single webhook, so
+	// they have no webhook_id of their own.
+	appHook := false
+	if pa, aErr := p.loadProjectAuth(projectID); aErr == nil && pa.authType == authTypeApp {
+		appHook = p.appWebhookActive(pa.installationID)
+	}
+
 	items := make([]repositoryResponse, 0, len(result.Rows))
 	for _, row := range result.Rows {
 		sc := newRowScanner(result.Columns, row)
@@ -264,7 +310,7 @@ func (p *githubPlugin) listRepositories(req *plugin.Request, res *plugin.Respons
 			FullName:      fullName,
 			DefaultBranch: sc.str("default_branch"),
 			CloneURL:      "https://github.com/" + fullName + ".git",
-			WebhookActive: sc.int64Val("webhook_id") > 0,
+			WebhookActive: appHook || sc.int64Val("webhook_id") > 0,
 			CreatedAt:     sc.str("created_at"),
 			UpdatedAt:     sc.str("updated_at"),
 		})
@@ -287,10 +333,22 @@ func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response)
 		return
 	}
 
-	webhookURL, err := webhookURLFromPublicURL(p.cfg, projectID)
+	pa, err := p.loadProjectAuth(projectID)
 	if err != nil {
-		apiError(res, 422, "GITHUB_WEBHOOK_URL_REQUIRED", "PUBLIC_URL is not configured")
+		writeAppError(res, err)
 		return
+	}
+	useApp := pa.authType == authTypeApp
+
+	// A PAT connection registers a webhook per repo, which needs a public URL.
+	// An App connection is covered by the App's own webhook.
+	webhookURL := ""
+	if !useApp {
+		webhookURL, err = webhookURLFromPublicURL(p.cfg, projectID)
+		if err != nil {
+			apiError(res, 422, "GITHUB_WEBHOOK_URL_REQUIRED", "PUBLIC_URL is not configured")
+			return
+		}
 	}
 
 	token, err := p.decryptToken(projectID)
@@ -321,39 +379,37 @@ func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response)
 		return
 	}
 
-	// Fetch integration ID.
-	integResult, iErr := p.db.Query(`SELECT id FROM github_integrations WHERE project_id = $1`, projectID)
-	if iErr != nil || len(integResult.Rows) == 0 {
-		apiError(res, 404, "GITHUB_INTEGRATION_NOT_FOUND", "GitHub integration not found")
-		return
-	}
-	integrationID := newRowScanner(integResult.Columns, integResult.Rows[0]).str("id")
+	integrationID := pa.integrationID
 
-	// Generate webhook secret.
-	secretBytes := make([]byte, 32)
-	if _, randErr := rand.Read(secretBytes); randErr != nil {
-		apiError(res, 500, "INTERNAL_ERROR", "failed to generate webhook secret")
-		return
-	}
-	webhookSecret := hex.EncodeToString(secretBytes)
-
-	webhookID, err := ghc.createWebhook(context.Background(), ghRepo.Owner.Login, ghRepo.Name, webhookURL, webhookSecret,
-		[]string{"push", "pull_request", "check_run"})
-	if err != nil {
-		var apiErr *ghAPIError
-		if errors.As(err, &apiErr) && isWebhookURLNotPublic(apiErr) {
-			apiError(res, 422, "GITHUB_WEBHOOK_URL_NOT_PUBLIC", "Webhook URL is not publicly accessible")
+	var webhookID int64
+	encSecret := ""
+	if !useApp {
+		// Generate webhook secret.
+		secretBytes := make([]byte, 32)
+		if _, randErr := rand.Read(secretBytes); randErr != nil {
+			apiError(res, 500, "INTERNAL_ERROR", "failed to generate webhook secret")
 			return
 		}
-		apiError(res, 502, "GITHUB_WEBHOOK_CREATION_FAILED", fmt.Sprintf("failed to create webhook: %s", err))
-		return
-	}
+		webhookSecret := hex.EncodeToString(secretBytes)
 
-	encSecret, err := p.encrypt(webhookSecret)
-	if err != nil {
-		_ = ghc.deleteWebhook(context.Background(), ghRepo.Owner.Login, ghRepo.Name, webhookID)
-		apiError(res, 500, "INTERNAL_ERROR", "failed to encrypt webhook secret")
-		return
+		webhookID, err = ghc.createWebhook(context.Background(), ghRepo.Owner.Login, ghRepo.Name, webhookURL, webhookSecret,
+			[]string{"push", "pull_request", "check_run"})
+		if err != nil {
+			var apiErr *ghAPIError
+			if errors.As(err, &apiErr) && isWebhookURLNotPublic(apiErr) {
+				apiError(res, 422, "GITHUB_WEBHOOK_URL_NOT_PUBLIC", "Webhook URL is not publicly accessible")
+				return
+			}
+			apiError(res, 502, "GITHUB_WEBHOOK_CREATION_FAILED", fmt.Sprintf("failed to create webhook: %s", err))
+			return
+		}
+
+		encSecret, err = p.encrypt(webhookSecret)
+		if err != nil {
+			_ = ghc.deleteWebhook(context.Background(), ghRepo.Owner.Login, ghRepo.Name, webhookID)
+			apiError(res, 500, "INTERNAL_ERROR", "failed to encrypt webhook secret")
+			return
+		}
 	}
 
 	now := nowStr()
@@ -364,7 +420,9 @@ func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response)
 		RETURNING id
 	`, projectID, integrationID, ghRepo.Owner.Login, ghRepo.Name, ghRepo.FullName, webhookID, encSecret, ghRepo.DefaultBranch, now)
 	if dbErr != nil || len(inserted.Rows) == 0 {
-		_ = ghc.deleteWebhook(context.Background(), ghRepo.Owner.Login, ghRepo.Name, webhookID)
+		if webhookID > 0 {
+			_ = ghc.deleteWebhook(context.Background(), ghRepo.Owner.Login, ghRepo.Name, webhookID)
+		}
 		if dbErr != nil {
 			apiError(res, 500, "INTERNAL_ERROR", dbErr.Error())
 		} else {
@@ -382,7 +440,7 @@ func (p *githubPlugin) linkRepository(req *plugin.Request, res *plugin.Response)
 		FullName:      ghRepo.FullName,
 		DefaultBranch: ghRepo.DefaultBranch,
 		CloneURL:      "https://github.com/" + ghRepo.FullName + ".git",
-		WebhookActive: webhookID > 0,
+		WebhookActive: webhookID > 0 || (useApp && p.appWebhookActive(pa.installationID)),
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	})
@@ -449,10 +507,14 @@ func (p *githubPlugin) getRepoCloneInfo(req *plugin.Request, res *plugin.Respons
 		apiError(res, 404, "GITHUB_REPOSITORY_NOT_FOUND", "repository not found")
 		return
 	}
-	token, err := p.decryptToken(projectID)
+	token, expiresAt, err := p.resolveCredentialFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return
+	}
+	var expiresUnix float64
+	if !expiresAt.IsZero() {
+		expiresUnix = float64(expiresAt.Unix())
 	}
 	sc := newRowScanner(result.Columns, result.Rows[0])
 	fullName := sc.str("full_name")
@@ -463,7 +525,7 @@ func (p *githubPlugin) getRepoCloneInfo(req *plugin.Request, res *plugin.Respons
 		RepoName:  sc.str("repo_name"),
 		CloneURL:  "https://github.com/" + fullName + ".git",
 		Token:     token,
-		ExpiresAt: 0,
+		ExpiresAt: expiresUnix,
 	})
 }
 

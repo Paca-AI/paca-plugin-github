@@ -105,7 +105,7 @@ func (p *githubPlugin) linkPRToTask(req *plugin.Request, res *plugin.Response) {
 		return
 	}
 
-	token, err := p.decryptToken(projectID)
+	token, err := p.decryptTokenFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return
@@ -245,7 +245,7 @@ func (p *githubPlugin) createPullRequest(req *plugin.Request, res *plugin.Respon
 		return
 	}
 
-	token, err := p.decryptToken(projectID)
+	token, err := p.decryptTokenFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return
@@ -463,7 +463,7 @@ func (p *githubPlugin) getPullRequestDetails(req *plugin.Request, res *plugin.Re
 		writeAppError(res, err)
 		return
 	}
-	token, err := p.decryptToken(projectID)
+	token, err := p.decryptTokenFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return
@@ -545,7 +545,7 @@ func (p *githubPlugin) getPullRequestCIStatus(req *plugin.Request, res *plugin.R
 		writeAppError(res, err)
 		return
 	}
-	token, err := p.decryptToken(projectID)
+	token, err := p.decryptTokenFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return
@@ -619,7 +619,7 @@ func (p *githubPlugin) addPullRequestComment(req *plugin.Request, res *plugin.Re
 		writeAppError(res, err)
 		return
 	}
-	token, err := p.decryptToken(projectID)
+	token, err := p.decryptTokenFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return
@@ -666,7 +666,7 @@ func (p *githubPlugin) createReview(req *plugin.Request, res *plugin.Response) {
 		writeAppError(res, err)
 		return
 	}
-	token, err := p.decryptToken(projectID)
+	token, err := p.decryptTokenFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return

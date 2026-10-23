@@ -42,7 +42,7 @@ func (p *githubPlugin) createBranch(req *plugin.Request, res *plugin.Response) {
 		return
 	}
 
-	token, err := p.decryptToken(projectID)
+	token, err := p.decryptTokenFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return
@@ -129,7 +129,7 @@ func (p *githubPlugin) linkBranchToTask(req *plugin.Request, res *plugin.Respons
 		return
 	}
 
-	token, err := p.decryptToken(projectID)
+	token, err := p.decryptTokenFor(projectID, req.Caller.UserID)
 	if err != nil {
 		writeAppError(res, err)
 		return

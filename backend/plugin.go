@@ -19,9 +19,10 @@ func nowStr() string {
 
 // githubPlugin implements plugin.Plugin.
 type githubPlugin struct {
-	db  *plugin.DB
-	log *plugin.Logger
-	cfg *plugin.Config
+	db    *plugin.DB
+	log   *plugin.Logger
+	cfg   *plugin.Config
+	cache *plugin.Cache
 }
 
 // Init registers all routes and event handlers on the provided context.
@@ -29,6 +30,7 @@ func (p *githubPlugin) Init(ctx *plugin.Context) error {
 	p.db = ctx.DB()
 	p.log = ctx.Log()
 	p.cfg = ctx.Config()
+	p.cache = ctx.Cache()
 
 	// Event handlers
 	ctx.On("task.deleted", p.handleTaskDeleted)
@@ -58,6 +60,21 @@ func (p *githubPlugin) Init(ctx *plugin.Context) error {
 	ctx.Route("GET", "/tasks/:taskId/branches", p.listTaskBranches)
 	ctx.Route("POST", "/tasks/:taskId/branches", p.createBranch)
 	ctx.Route("POST", "/tasks/:taskId/branches/link", p.linkBranchToTask)
+
+	// ── GitHub Apps (instance-level, Manifest Flow) ───────────────────────────
+	ctx.Route("POST", "/apps/manifest", p.createManifest)
+	ctx.Route("POST", "/apps/callback/created", p.callbackCreated)
+	ctx.Route("POST", "/apps/callback/installed", p.callbackInstalled)
+	ctx.Route("GET", "/apps", p.listApps)
+	ctx.Route("DELETE", "/apps/:appId", p.deleteApp)
+	ctx.Route("POST", "/apps/:appId/install", p.startInstall)
+	ctx.Route("POST", "/apps/:appId/installations/:installationId/access", p.setInstallationAccess)
+	ctx.Route("GET", "/integration/installations", p.listProjectInstallations)
+	ctx.Route("POST", "/integration/app", p.bindInstallation)
+	ctx.Route("GET", "/integration/agent-identities", p.listAgentIdentities)
+	ctx.Route("POST", "/integration/agent-identities", p.setAgentIdentity)
+	ctx.Route("DELETE", "/integration/agent-identities/:memberId", p.deleteAgentIdentity)
+	ctx.Route("POST", "/webhooks/apps/:appKey", p.receiveAppWebhook)
 
 	// ── Webhook ───────────────────────────────────────────────────────────────
 	ctx.Route("POST", "/webhook", p.receiveWebhook)

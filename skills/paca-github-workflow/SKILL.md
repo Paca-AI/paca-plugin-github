@@ -13,11 +13,11 @@ triggers:
 
 # GitHub Workflow Skill
 
-This plugin (`com.paca.github`) connects a Paca project to GitHub via a Personal Access Token (PAT) — not a GitHub App — and links repositories, branches, and pull requests to individual tasks. All GitHub API calls happen server-side; you only ever call this plugin's tools.
+This plugin (`com.paca.github`) connects a Paca project to GitHub via a GitHub App installation (created from Project Settings → GitHub) or a Personal Access Token (PAT), and links repositories, branches, and pull requests to individual tasks. All GitHub API calls happen server-side; you only ever call this plugin's tools.
 
 ## Prerequisites — check before doing anything else
 
-1. `github_get_integration({projectId})`. If `connected` is false, a GitHub PAT must be connected first (scopes `repo` + `admin:repo_hook`) — you cannot mint one yourself. Tell the user to add it under Project Settings → GitHub, or, if they give you a token directly in the conversation, call `github_set_token({projectId, token})` yourself.
+1. `github_get_integration({projectId})`. If `connected` is false, a GitHub App installation or a GitHub PAT (scopes `repo` + `admin:repo_hook`) must be connected first — you cannot create either yourself. Tell the user to connect one under Project Settings → GitHub (the GitHub App option is recommended), or, if they give you a token directly in the conversation, call `github_set_token({projectId, token})` yourself.
 2. `github_list_linked_repos({projectId})`. If empty and you already know the exact `owner`/`repo_name`, call `github_link_repository({projectId, owner, repo_name})` — this also creates the required webhook automatically. If you don't know the exact owner/repo name, ask the user; there's no tool to browse "which repos can this token see" (that picker is UI-only).
 
 Every branch/PR tool below 404s (`GITHUB_INTEGRATION_NOT_FOUND` / `GITHUB_REPOSITORY_NOT_FOUND`) until both of these are satisfied.

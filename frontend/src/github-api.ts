@@ -17,6 +17,15 @@ export const ErrorCode = {
   GitHubBranchAlreadyLinked: "GITHUB_BRANCH_ALREADY_LINKED",
   GitHubBranchNotFound: "GITHUB_BRANCH_NOT_FOUND",
   GitHubTokenInsufficientPermissions: "GITHUB_TOKEN_INSUFFICIENT_PERMISSIONS",
+  GitHubInstallationNotAllowed: "GITHUB_INSTALLATION_NOT_ALLOWED",
+  GitHubAgentIdentityUnavailable: "GITHUB_AGENT_IDENTITY_UNAVAILABLE",
+  GitHubUnlinkReposFirst: "GITHUB_UNLINK_REPOS_FIRST",
+  GitHubWebhookURLRequired: "GITHUB_WEBHOOK_URL_REQUIRED",
+  GitHubSetupInvalidState: "GITHUB_SETUP_INVALID_STATE",
+  GitHubSetupMissingParameter: "GITHUB_SETUP_MISSING_PARAMETER",
+  GitHubSetupConversionFailed: "GITHUB_SETUP_CONVERSION_FAILED",
+  GitHubSetupStoreFailed: "GITHUB_SETUP_STORE_FAILED",
+  GitHubSetupInstallationFailed: "GITHUB_SETUP_INSTALLATION_FAILED",
   BadRequest: "BAD_REQUEST",
 } as const;
 
@@ -54,6 +63,51 @@ export interface GitHubIntegration {
   connected: boolean;
   created_at?: string;
   updated_at?: string;
+  /** "pat" or "app"; for "app" the fields below describe the installation. */
+  auth_type?: "pat" | "app";
+  installation_id?: string;
+  app_name?: string;
+  account_login?: string;
+}
+
+/** An app installation a project may bind (no secrets, no other projects). */
+export interface ProjectInstallation {
+  id: string;
+  app_name: string;
+  account_login: string;
+  account_type: string;
+  repository_selection: string;
+}
+
+export interface AppInstallation {
+  id: string;
+  installation_id: number;
+  account_login: string;
+  account_type: string;
+  repository_selection: string;
+  allow_all_projects: boolean;
+  project_ids: string[];
+  suspended: boolean;
+  manage_url: string;
+}
+
+export interface GitHubApp {
+  id: string;
+  github_app_id: number;
+  slug: string;
+  name: string;
+  owner_login: string;
+  html_url: string;
+  webhook_active: boolean;
+  created_at: string;
+  installations: AppInstallation[];
+}
+
+export interface ManifestResponse {
+  post_url: string;
+  state: string;
+  manifest: Record<string, unknown>;
+  webhook_active: boolean;
 }
 
 export interface AccessibleRepo {
@@ -111,6 +165,14 @@ export interface CreateBranchResult {
 
 export const integrationKey = (projectId: string) =>
   [PLUGIN_ID, "integration", projectId] as const;
+
+export const projectInstallationsKey = (projectId: string) =>
+  [PLUGIN_ID, "project-installations", projectId] as const;
+
+export const agentIdentitiesKey = (projectId: string) =>
+  [PLUGIN_ID, "agent-identities", projectId] as const;
+
+export const appsKey = () => [PLUGIN_ID, "apps"] as const;
 
 export const linkedReposKey = (projectId: string) =>
   [PLUGIN_ID, "linked-repos", projectId] as const;
@@ -251,4 +313,172 @@ export async function linkBranchToTask(
     `/projects/${api.projectId}/tasks/${taskId}/branches/link`,
     { repo_id: repoId, branch_name: branchName },
   );
+}
+
+// ── GitHub Apps (instance-level) ───────────────────────────────────────────────
+
+export async function listProjectInstallations(
+  api: PluginApiClient,
+): Promise<ProjectInstallation[]> {
+  return api.pluginGet<ProjectInstallation[]>(
+    PLUGIN_ID,
+    `/projects/${api.projectId}/integration/installations`,
+  );
+}
+
+export async function bindInstallation(
+  api: PluginApiClient,
+  installationId: string,
+): Promise<GitHubIntegration> {
+  return api.pluginPost<GitHubIntegration>(
+    PLUGIN_ID,
+    `/projects/${api.projectId}/integration/app`,
+    { installation_id: installationId },
+  );
+}
+
+/** Requires the instance-wide github:manage_apps action; 403 otherwise. */
+export async function listGitHubApps(api: PluginApiClient): Promise<GitHubApp[]> {
+  return api.pluginGet<GitHubApp[]>(PLUGIN_ID, "/apps");
+}
+
+export async function createAppManifest(
+  api: PluginApiClient,
+  body: {
+    name: string;
+    owner_org?: string;
+    allow_all_projects: boolean;
+    public?: boolean;
+    return_url: string;
+  },
+): Promise<ManifestResponse> {
+  return api.pluginPost<ManifestResponse>(PLUGIN_ID, "/apps/manifest", body);
+}
+
+export async function startAppInstall(
+  api: PluginApiClient,
+  appId: string,
+  returnUrl: string,
+): Promise<{ url: string }> {
+  return api.pluginPost<{ url: string }>(PLUGIN_ID, `/apps/${appId}/install`, {
+    return_url: returnUrl,
+  });
+}
+
+export async function setInstallationAccess(
+  api: PluginApiClient,
+  appId: string,
+  installationId: string,
+  allowAllProjects: boolean,
+  projectIds: string[],
+): Promise<void> {
+  await api.pluginPost(
+    PLUGIN_ID,
+    `/apps/${appId}/installations/${installationId}/access`,
+    { allow_all_projects: allowAllProjects, project_ids: projectIds },
+  );
+}
+
+export async function deleteGitHubApp(api: PluginApiClient, appId: string): Promise<void> {
+  return api.pluginDelete(PLUGIN_ID, `/apps/${appId}`);
+}
+
+// ── Per-agent identities ───────────────────────────────────────────────────────
+
+export interface AgentIdentity {
+  member_id: string;
+  installation_id: string;
+  app_name: string;
+  account_login: string;
+}
+
+export async function listAgentIdentities(api: PluginApiClient): Promise<AgentIdentity[]> {
+  return api.pluginGet<AgentIdentity[]>(
+    PLUGIN_ID,
+    `/projects/${api.projectId}/integration/agent-identities`,
+  );
+}
+
+export async function setAgentIdentity(
+  api: PluginApiClient,
+  memberId: string,
+  installationId: string,
+): Promise<AgentIdentity[]> {
+  return api.pluginPost<AgentIdentity[]>(
+    PLUGIN_ID,
+    `/projects/${api.projectId}/integration/agent-identities`,
+    { member_id: memberId, installation_id: installationId },
+  );
+}
+
+export async function deleteAgentIdentity(api: PluginApiClient, memberId: string): Promise<void> {
+  return api.pluginDelete(
+    PLUGIN_ID,
+    `/projects/${api.projectId}/integration/agent-identities/${memberId}`,
+  );
+}
+
+// ── Project members (host API) ─────────────────────────────────────────────────
+
+export interface MemberLite {
+  id: string;
+  name: string;
+  memberType?: string;
+}
+
+/**
+ * Reads the host's project-member list directly. The SDK's own listMembers()
+ * predates the paginated endpoint, so it can't filter by type or id.
+ */
+export async function fetchMembers(
+  projectId: string,
+  opts: { memberType?: string; ids?: string[]; pageSize?: number } = {},
+): Promise<MemberLite[]> {
+  const params = new URLSearchParams({ page_size: String(opts.pageSize ?? 100) });
+  if (opts.memberType) params.set("member_type", opts.memberType);
+  if (opts.ids?.length) params.set("ids", opts.ids.join(","));
+  const res = await window.fetch(
+    `${window.location.origin}/api/v1/projects/${projectId}/members?${params}`,
+    { credentials: "include" },
+  );
+  if (!res.ok) throw new Error(`members request failed: ${res.status}`);
+  const json = (await res.json()) as {
+    data?: {
+      items?: {
+        id: string;
+        username: string;
+        full_name: string;
+        agent_name?: string;
+        member_type?: string;
+      }[];
+    };
+  };
+  return (json.data?.items ?? []).map((m) => ({
+    id: m.id,
+    name: m.agent_name || m.full_name || m.username,
+    memberType: m.member_type,
+  }));
+}
+
+// ── GitHub App setup callbacks ─────────────────────────────────────────────────
+
+export interface SetupCallbackResult {
+  /** GitHub URL for the next leg of the flow, when there is one. */
+  next_url?: string;
+  /** The Paca page that started the flow. */
+  return_url: string;
+}
+
+export async function completeAppCreated(
+  api: PluginApiClient,
+  body: { code: string; state: string },
+): Promise<SetupCallbackResult> {
+  return api.pluginPost<SetupCallbackResult>(PLUGIN_ID, "/apps/callback/created", body);
+}
+
+export async function completeAppInstalled(
+  api: PluginApiClient,
+  body: { installation_id: string; state: string },
+): Promise<SetupCallbackResult> {
+  return api.pluginPost<SetupCallbackResult>(PLUGIN_ID, "/apps/callback/installed", body);
 }

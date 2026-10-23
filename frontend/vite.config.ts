@@ -11,6 +11,7 @@ export default defineConfig({
       exposes: {
         "./GitHubSettingsTab": "./src/GitHubSettingsTab.tsx",
         "./GitHubTaskSection": "./src/GitHubTaskSection.tsx",
+        "./GitHubAppCallbackPage": "./src/GitHubAppCallbackPage.tsx",
       },
       shared: {
         react: { requiredVersion: "^19.0.0" },

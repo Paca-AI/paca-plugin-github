@@ -2,7 +2,7 @@
   "id": "com.paca.github",
   "displayName": "GitHub Integration",
   "description": "Integrates GitHub repositories, pull requests, and branches with Paca projects and tasks.",
-  "version": "0.4.1",
+  "version": "0.6.0",
   "minCoreVersion": "v0.19.0",
   "capabilities": ["repository"],
   "permissions": ["db.read", "db.write"],
@@ -12,6 +12,12 @@
       "label": "Manage GitHub integration",
       "description": "View and manage this project's GitHub integration: connect or disconnect the access token, and link or unlink repositories. Does not affect PR/branch info on individual tasks, which any project member with task access can already see.",
       "scope": "project"
+    },
+    {
+      "key": "github:manage_apps",
+      "label": "Manage GitHub Apps",
+      "description": "Instance-wide: create GitHub Apps through the manifest flow, install them on GitHub accounts and organizations, choose which projects may use each installation, and delete apps. Project managers can only pick from the installations made available to their project.",
+      "scope": "global"
     }
   ],
   "backend": {
@@ -19,7 +25,8 @@
     "allowedOutboundDomains": ["api.github.com"],
     "sensitiveFields": {
       "github_integrations": ["access_token_enc"],
-      "github_repositories": ["webhook_secret_enc"]
+      "github_repositories": ["webhook_secret_enc"],
+      "github_apps": ["client_secret_enc", "webhook_secret_enc", "private_key_enc"]
     },
     "routes": [
       {
@@ -271,6 +278,167 @@
       },
       {
         "method": "POST",
+        "path": "/apps/manifest",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "global",
+            "actions": ["github:manage_apps"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/apps/callback/created",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "global",
+            "actions": ["github:manage_apps"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/apps/callback/installed",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "global",
+            "actions": ["github:manage_apps"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/apps",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "global",
+            "actions": ["github:manage_apps"]
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/apps/:appId",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "global",
+            "actions": ["github:manage_apps"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/apps/:appId/install",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "global",
+            "actions": ["github:manage_apps"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/apps/:appId/installations/:installationId/access",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "global",
+            "actions": ["github:manage_apps"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/projects/:projectId/integration/installations",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "project",
+            "actions": ["github:manage"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/projects/:projectId/integration/app",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "project",
+            "actions": ["github:manage"]
+          }
+        ]
+      },
+      {
+        "method": "GET",
+        "path": "/projects/:projectId/integration/agent-identities",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "project",
+            "actions": ["github:manage"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/projects/:projectId/integration/agent-identities",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "project",
+            "actions": ["github:manage"]
+          }
+        ]
+      },
+      {
+        "method": "DELETE",
+        "path": "/projects/:projectId/integration/agent-identities/:memberId",
+        "middlewares": [
+          { "name": "optionalAuthn" },
+          { "name": "requireFreshPassword" },
+          {
+            "name": "requireActions",
+            "scope": "project",
+            "actions": ["github:manage"]
+          }
+        ]
+      },
+      {
+        "method": "POST",
+        "path": "/webhooks/apps/:appKey",
+        "middlewares": [{ "name": "optionalAuthn" }]
+      },
+      {
+        "method": "POST",
         "path": "/projects/:projectId/webhook",
         "middlewares": [{ "name": "optionalAuthn" }]
       }
@@ -290,6 +458,20 @@
         "point": "task.detail.section",
         "component": "GitHubTaskSection",
         "order": 5
+      },
+      {
+        "point": "app.page",
+        "component": "GitHubAppCallbackPage",
+        "requiredPermission": "github:manage_apps"
+      }
+    ],
+    "navItems": [
+      {
+        "scope": "app",
+        "slug": "github-app-callback",
+        "label": "GitHub App setup",
+        "component": "GitHubAppCallbackPage",
+        "requiredPermission": "github:manage_apps"
       }
     ]
   },

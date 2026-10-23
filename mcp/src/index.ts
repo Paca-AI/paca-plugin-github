@@ -12,6 +12,10 @@ import {
 interface GitHubIntegration {
 	id: string;
 	project_id: string;
+	connected?: boolean;
+	auth_type?: "pat" | "app";
+	app_name?: string;
+	account_login?: string;
 	created_at: string;
 	updated_at: string;
 }
@@ -104,6 +108,8 @@ function formatIntegration(integration: GitHubIntegration): string {
 	return `GitHub Integration:
 ID: ${integration.id}
 Project ID: ${integration.project_id}
+Connected: ${integration.connected ?? true}
+Auth: ${integration.auth_type === "app" ? `GitHub App ${integration.app_name ?? ""} (${integration.account_login ?? ""})` : "personal access token"}
 Created: ${integration.created_at}
 Updated: ${integration.updated_at}`;
 }

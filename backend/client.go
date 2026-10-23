@@ -16,6 +16,9 @@ const (
 	ghAPIVersion = "2022-11-28"
 )
 
+// fetch is the outbound HTTP call; a variable so tests can stub GitHub.
+var fetch = plugin.Fetch
+
 // ghRepository is a minimal GitHub repository representation.
 type ghRepository struct {
 	ID       int64  `json:"id"`
@@ -99,15 +102,20 @@ func newGHClient(token string) *ghClient {
 }
 
 func (c *ghClient) headers() map[string]string {
-	return map[string]string{
-		"Authorization":        "Bearer " + c.token,
+	h := map[string]string{
 		"Accept":               "application/vnd.github+json",
 		"X-GitHub-Api-Version": ghAPIVersion,
 	}
+	// An empty token is for the few unauthenticated endpoints (the manifest
+	// code conversion); sending "Bearer " there would be rejected.
+	if c.token != "" {
+		h["Authorization"] = "Bearer " + c.token
+	}
+	return h
 }
 
 func (c *ghClient) get(_ context.Context, rawURL string, out any) error {
-	resp, err := plugin.Fetch("GET", rawURL, c.headers(), "")
+	resp, err := fetch("GET", rawURL, c.headers(), "")
 	if err != nil {
 		return fmt.Errorf("githubclient: execute request: %w", err)
 	}
@@ -129,7 +137,7 @@ func (c *ghClient) post(_ context.Context, rawURL string, body, out any) error {
 	}
 	hdrs := c.headers()
 	hdrs["Content-Type"] = "application/json"
-	resp, err := plugin.Fetch("POST", rawURL, hdrs, string(bodyJSON))
+	resp, err := fetch("POST", rawURL, hdrs, string(bodyJSON))
 	if err != nil {
 		return fmt.Errorf("githubclient: execute request: %w", err)
 	}
@@ -145,7 +153,7 @@ func (c *ghClient) post(_ context.Context, rawURL string, body, out any) error {
 }
 
 func (c *ghClient) doDelete(_ context.Context, rawURL string) error {
-	resp, err := plugin.Fetch("DELETE", rawURL, c.headers(), "")
+	resp, err := fetch("DELETE", rawURL, c.headers(), "")
 	if err != nil {
 		return fmt.Errorf("githubclient: execute request: %w", err)
 	}
@@ -339,7 +347,7 @@ func (c *ghClient) mergePullRequest(ctx context.Context, owner, repo string, prN
 	}
 	hdrs := c.headers()
 	hdrs["Content-Type"] = "application/json"
-	resp, err := plugin.Fetch("PUT", url, hdrs, string(bodyJSON))
+	resp, err := fetch("PUT", url, hdrs, string(bodyJSON))
 	if err != nil {
 		return fmt.Errorf("githubclient: execute request: %w", err)
 	}
@@ -356,7 +364,7 @@ func (c *ghClient) getPullRequestDiff(_ context.Context, owner, repo string, prN
 	url := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", ghBaseURL, owner, repo, prNumber)
 	hdrs := c.headers()
 	hdrs["Accept"] = "application/vnd.github.v3.diff"
-	resp, err := plugin.Fetch("GET", url, hdrs, "")
+	resp, err := fetch("GET", url, hdrs, "")
 	if err != nil {
 		return "", fmt.Errorf("githubclient: execute request: %w", err)
 	}
@@ -440,4 +448,73 @@ func (c *ghClient) createBranch(ctx context.Context, owner, repo, newBranch, sou
 		"ref": "refs/heads/" + newBranch,
 		"sha": refResp.Object.SHA,
 	}, nil)
+}
+
+// ─── GitHub App endpoints ────────────────────────────────────────────────────
+
+// ghManifestConversion is the response of POST /app-manifests/{code}/conversions.
+// It is the only time GitHub ever returns the App's private key, client secret
+// and webhook secret.
+type ghManifestConversion struct {
+	ID            int64  `json:"id"`
+	Slug          string `json:"slug"`
+	Name          string `json:"name"`
+	HTMLURL       string `json:"html_url"`
+	ClientID      string `json:"client_id"`
+	ClientSecret  string `json:"client_secret"`
+	WebhookSecret string `json:"webhook_secret"`
+	PEM           string `json:"pem"`
+	Owner         struct {
+		Login string `json:"login"`
+	} `json:"owner"`
+}
+
+// convertManifestCode exchanges the one-time manifest code for the App's
+// credentials. The endpoint is unauthenticated; the code is the credential.
+func (c *ghClient) convertManifestCode(ctx context.Context, code string) (*ghManifestConversion, error) {
+	var out ghManifestConversion
+	if err := c.post(ctx, ghBaseURL+"/app-manifests/"+url.PathEscape(code)+"/conversions", map[string]any{}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ghInstallation is a minimal GET /app/installations/{id} response.
+type ghInstallation struct {
+	ID                  int64      `json:"id"`
+	RepositorySelection string     `json:"repository_selection"`
+	SuspendedAt         *time.Time `json:"suspended_at"`
+	Account             struct {
+		Login string `json:"login"`
+		Type  string `json:"type"`
+	} `json:"account"`
+}
+
+// getInstallation fetches an installation; the client must hold an App JWT.
+func (c *ghClient) getInstallation(ctx context.Context, installationID int64) (*ghInstallation, error) {
+	var out ghInstallation
+	if err := c.get(ctx, fmt.Sprintf("%s/app/installations/%d", ghBaseURL, installationID), &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// listInstallationRepositories lists every repository the installation can
+// see; the client must hold an installation token.
+func (c *ghClient) listInstallationRepositories(ctx context.Context) ([]ghRepository, error) {
+	var all []ghRepository
+	for page := 1; ; page++ {
+		var batch struct {
+			Repositories []ghRepository `json:"repositories"`
+		}
+		u := fmt.Sprintf("%s/installation/repositories?per_page=100&page=%d", ghBaseURL, page)
+		if err := c.get(ctx, u, &batch); err != nil {
+			return nil, err
+		}
+		all = append(all, batch.Repositories...)
+		if len(batch.Repositories) < 100 {
+			break
+		}
+	}
+	return all, nil
 }

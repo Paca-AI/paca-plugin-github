@@ -197,7 +197,8 @@ func TestMentionsHandle_MoreCases(t *testing.T) {
 	if !mentionsHandle("@a.b", "a.b") || mentionsHandle("@axb", "a.b") {
 		t.Error("a handle is matched literally")
 	}
-	if mentionRegexp("paca-bot") != mentionRegexp("paca-bot") {
+	first, second := mentionRegexp("paca-bot"), mentionRegexp("paca-bot")
+	if first != second {
 		t.Error("the compiled pattern is reused")
 	}
 }

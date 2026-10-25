@@ -683,3 +683,69 @@ func TestSPIRoutesAreMountedOnTheInternalPrefix(t *testing.T) {
 		t.Fatalf("unknown identity over the wire: %d %s", res.StatusCode, res.BodyString())
 	}
 }
+
+func TestBranches(t *testing.T) {
+	p, g, _ := seededProvider(t)
+	bm := gp.BranchManager(p)
+	tg := webTarget()
+	tg.Repo.DefaultBranch = "main"
+
+	got, err := bm.GetBranch(bg, gp.GetBranchRequest{Target: tg, Name: "feat/PACA-12-login"})
+	if err != nil || got.SHA != "abc123" || got.URL != "https://github.com/acme/web/tree/feat/PACA-12-login" {
+		t.Fatalf("GetBranch: %+v %v", got, err)
+	}
+	if _, err := bm.GetBranch(bg, gp.GetBranchRequest{Target: tg, Name: "nope"}); codeOf(t, err) != gp.CodeNotFound {
+		t.Fatalf("missing branch: %v", err)
+	}
+	if g.called("GET /repos/acme/web/branches/feat/PACA-12-login") != 1 {
+		t.Errorf("a slash in a branch name must stay a path separator: %v", g.calls)
+	}
+
+	made, err := bm.CreateBranch(bg, gp.CreateBranchRequest{Target: tg, Name: "paca/PACA-1"})
+	if err != nil || made.SHA != "sha-main" || made.Name != "paca/PACA-1" {
+		t.Fatalf("CreateBranch from the default: %+v %v", made, err)
+	}
+	if g.branches["paca/PACA-1"] != "sha-main" {
+		t.Errorf("the ref was not created at the source head: %v", g.branches)
+	}
+	fromOther, err := bm.CreateBranch(bg, gp.CreateBranchRequest{Target: tg, Name: "paca/PACA-2", From: "feat/PACA-12-login"})
+	if err != nil || fromOther.SHA != "abc123" {
+		t.Fatalf("CreateBranch from another branch: %+v %v", fromOther, err)
+	}
+	if _, err := bm.CreateBranch(bg, gp.CreateBranchRequest{Target: tg, Name: "paca/PACA-1"}); codeOf(t, err) != gp.CodeConflict {
+		t.Fatalf("a taken name must be a conflict: %v", err)
+	}
+	if _, err := bm.CreateBranch(bg, gp.CreateBranchRequest{Target: tg, Name: "paca/x", From: "gone"}); codeOf(t, err) != gp.CodeNotFound {
+		t.Fatalf("a missing source must be not_found: %v", err)
+	}
+	noDefault := webTarget()
+	if _, err := bm.CreateBranch(bg, gp.CreateBranchRequest{Target: noDefault, Name: "paca/x"}); codeOf(t, err) != gp.CodeValidation {
+		t.Fatalf("no source and no default: %v", err)
+	}
+	for _, bad := range []string{"", "has space", "a..b", "-flag", "x.lock", "a//b", "tilde~", "/lead", "trail/", "a@{b"} {
+		if _, err := bm.CreateBranch(bg, gp.CreateBranchRequest{Target: tg, Name: bad}); codeOf(t, err) != gp.CodeValidation {
+			t.Errorf("%q must be refused as validation: %v", bad, err)
+		}
+		if _, err := bm.GetBranch(bg, gp.GetBranchRequest{Target: tg, Name: bad}); codeOf(t, err) != gp.CodeValidation {
+			t.Errorf("get %q must be refused as validation: %v", bad, err)
+		}
+	}
+}
+
+func TestMintCredential_ReportsTheRequestedLifetimeWhenShorter(t *testing.T) {
+	p, _, _ := seededProvider(t)
+	until := func(c gp.Credential) time.Duration { return time.Until(c.ExpiresAt) }
+
+	short, err := p.MintCredential(bg, gp.MintRequest{Target: webTarget(), Access: gp.AccessRead, TTLSeconds: 300})
+	if err != nil || until(short) > 5*time.Minute || until(short) < 4*time.Minute {
+		t.Fatalf("a requested lifetime caps ExpiresAt: %v %v", until(short), err)
+	}
+	unspecified, err := p.MintCredential(bg, gp.MintRequest{Target: webTarget(), Access: gp.AccessRead})
+	if err != nil || until(unspecified) < 30*time.Minute {
+		t.Fatalf("without a request the token's own expiry is reported: %v %v", until(unspecified), err)
+	}
+	long, err := p.MintCredential(bg, gp.MintRequest{Target: webTarget(), Access: gp.AccessRead, TTLSeconds: 7 * 24 * 3600})
+	if err != nil || until(long) > 61*time.Minute {
+		t.Fatalf("a longer request cannot extend a token: %v %v", until(long), err)
+	}
+}

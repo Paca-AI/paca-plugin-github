@@ -44,6 +44,7 @@ type fakeGitHub struct {
 	comments    []fakeComment
 	nextID      int64
 	threads     map[string]*fakeThread
+	branches    map[string]string       // branch → commit sha
 	forceError  map[string]fakeResponse // "METHOD /path" → canned answer
 	userLookups []bool                  // for each GET /users/{login}: was it authenticated?
 }
@@ -118,7 +119,8 @@ func newFakeGitHub(t *testing.T) *fakeGitHub {
 	g := &fakeGitHub{
 		t: t, key: key, appID: 4242, installationID: 99, validTokens: map[string]int64{}, installs: map[int64]fakeInstall{99: {"acme", "Organization", nil}, 100: {"other-org", "Organization", []string{"lib"}}},
 		prs: map[int]*fakePR{}, nextNumber: 2, nextID: 9000, forceError: map[string]fakeResponse{},
-		threads: map[string]*fakeThread{"PRRT_1": {ID: "PRRT_1"}},
+		threads:  map[string]*fakeThread{"PRRT_1": {ID: "PRRT_1"}},
+		branches: map[string]string{"main": "sha-main", "feat/PACA-12-login": "abc123"},
 	}
 	g.prs[1] = &fakePR{
 		Number: 1, Title: "Add login", Body: "body", State: "open", HeadRef: "feat/PACA-12-login", HeadSHA: "abc123",
@@ -455,6 +457,26 @@ func (g *fakeGitHub) repoSub(method, sub string, q url.Values, headers map[strin
 		pr.Merged, pr.State = true, "closed"
 		return resp(200, map[string]any{"merged": true, "sha": "merge-sha"})
 
+	// ── branches ──
+	case strings.HasPrefix(sub, "branches/") && method == "GET":
+		name, _ := url.PathUnescape(strings.TrimPrefix(sub, "branches/"))
+		sha, ok := g.branches[name]
+		if !ok {
+			return resp(404, map[string]string{"message": "Branch not found"})
+		}
+		out := map[string]any{"name": name, "commit": map[string]string{"sha": sha}, "protected": name == "main"}
+		if name == "main" {
+			out["protection"] = map[string]any{"required_status_checks": map[string]any{"strict": true}}
+		}
+		return resp(200, out)
+	case sub == "git/refs" && method == "POST":
+		name := strings.TrimPrefix(str(payload, "ref"), "refs/heads/")
+		if _, taken := g.branches[name]; taken {
+			return resp(422, map[string]string{"message": "Reference already exists"})
+		}
+		g.branches[name] = str(payload, "sha")
+		return resp(201, map[string]any{"ref": str(payload, "ref")})
+
 	// ── issues and comments ──
 	case seg[0] == "issues" && len(seg) == 2 && method == "GET":
 		n, _ := strconv.Atoi(seg[1])
@@ -532,11 +554,6 @@ func (g *fakeGitHub) repoSub(method, sub string, q url.Values, headers map[strin
 			legacy = "write"
 		}
 		return resp(200, map[string]string{"permission": legacy, "role_name": perm})
-	case seg[0] == "branches" && len(seg) == 2:
-		if seg[1] != "main" {
-			return notFound()
-		}
-		return resp(200, map[string]any{"protected": true, "protection": map[string]any{"required_status_checks": map[string]any{"strict": true}}})
 	case seg[0] == "contents":
 		if strings.Join(seg[1:], "/") != "README.md" {
 			return notFound()

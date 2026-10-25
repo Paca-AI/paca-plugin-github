@@ -110,8 +110,10 @@ type ghPRPayload struct {
 	Body   string `json:"body"`
 	Draft  bool   `json:"draft"`
 	Merged bool   `json:"merged"`
-	User   ghUser `json:"user"`
-	Head   struct {
+	// HTMLURL is the pull request's page.
+	HTMLURL string `json:"html_url"`
+	User    ghUser `json:"user"`
+	Head    struct {
 		Ref  string `json:"ref"`
 		SHA  string `json:"sha"`
 		Repo *struct {
@@ -146,7 +148,7 @@ func prSubject(pr *ghPRPayload, baseRepo string) *gp.EventSubject {
 	} else {
 		head.FromFork = true // the head repository was deleted: it can only have been a fork
 	}
-	return &gp.EventSubject{Kind: gp.SubjectChangeRequest, Number: strconv.Itoa(pr.Number), Head: head, Base: pr.Base.Ref, Draft: pr.Draft, Author: pr.User.Login}
+	return &gp.EventSubject{Kind: gp.SubjectChangeRequest, Number: strconv.Itoa(pr.Number), Head: head, Base: pr.Base.Ref, Draft: pr.Draft, Author: pr.User.Login, URL: pr.HTMLURL}
 }
 
 func conclusionOf(c string) string {

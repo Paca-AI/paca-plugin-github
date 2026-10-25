@@ -63,6 +63,7 @@ func (p *ghProvider) Describe() gp.Info {
 			Assignees:        true,
 			Merge:            true,
 			IdentityDeletion: true,
+			Branches:         true,
 			AccessGrants:     true,
 
 			BatchReview:         true,
@@ -428,6 +429,15 @@ func (p *ghProvider) MintCredential(_ context.Context, req gp.MintRequest) (gp.C
 			return gp.Credential{}, gp.Errorf(gp.CodeNotFound, "the repository is not accessible to this identity")
 		}
 		return gp.Credential{}, err
+	}
+	// GitHub installation tokens last an hour and cannot be shortened. When the
+	// caller names a lifetime, ExpiresAt reports that instead: the token is
+	// good until then, and a caller that stops using it at ExpiresAt is never
+	// holding a credential longer than it asked for.
+	if req.TTLSeconds > 0 {
+		if until := time.Now().Add(time.Duration(req.TTLSeconds) * time.Second); until.Before(exp) {
+			exp = until
+		}
 	}
 	return gp.Credential{Username: botCredUsername, Secret: tok, ExpiresAt: exp}, nil
 }

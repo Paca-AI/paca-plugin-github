@@ -37,7 +37,7 @@ func TestDescribe_DeclaresWhatGitHubCanDo(t *testing.T) {
 	c := p.Describe().Capabilities
 	for _, trig := range []gp.TriggerKind{gp.TriggerReviewRequest, gp.TriggerAssignment} {
 		if c.SupportsTrigger(trig) {
-			t.Errorf("%s must not be declared: an ordinary GitHub App bot cannot be requested or assigned (spike S1)", trig)
+			t.Errorf("%s must not be declared: an ordinary GitHub App bot cannot be requested or assigned", trig)
 		}
 	}
 	for _, trig := range []gp.TriggerKind{gp.TriggerMention, gp.TriggerLabel} {

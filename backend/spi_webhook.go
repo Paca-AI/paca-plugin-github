@@ -57,6 +57,10 @@ type ghDelivery struct {
 		FullName      string `json:"full_name"`
 		DefaultBranch string `json:"default_branch"`
 	} `json:"repository"`
+	Label *struct {
+		Name string `json:"name"`
+	} `json:"label"`
+
 	// RequestedReviewer is who a review was requested from (review_requested)
 	// and Assignee who an issue or pull request was assigned to (assigned).
 	RequestedReviewer *ghUser `json:"requested_reviewer"`
@@ -236,6 +240,11 @@ func (d *ghDelivery) normalize(name string, app appRecord) (gp.Event, bool) {
 			if d.PullRequest.Merged {
 				ev.Action = "merged"
 			}
+		case "labeled":
+			if d.Label == nil {
+				return gp.Event{}, false
+			}
+			ev.Kind, ev.Action, ev.Label = gp.EventLabel, "labeled", d.Label.Name
 		case "review_requested":
 			// Only a request naming this app is for Paca; requests for people or
 			// teams are the repository's own business.
@@ -265,6 +274,11 @@ func (d *ghDelivery) normalize(name string, app appRecord) (gp.Event, bool) {
 			ev.Kind, ev.Action = gp.EventComment, "created"
 			ev.Text = strings.TrimSpace(d.Issue.Title + "\n\n" + d.Issue.Body)
 			address(d.Issue.Title + "\n" + d.Issue.Body)
+		case "labeled":
+			if d.Label == nil {
+				return gp.Event{}, false
+			}
+			ev.Kind, ev.Action, ev.Label = gp.EventLabel, "labeled", d.Label.Name
 		case "assigned":
 			if !isApp(d.Assignee, app) {
 				return gp.Event{}, false

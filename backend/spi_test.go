@@ -35,13 +35,10 @@ func webTarget() gp.Target {
 func TestDescribe_DeclaresWhatGitHubCanDo(t *testing.T) {
 	p, _, _ := seededProvider(t)
 	c := p.Describe().Capabilities
-	for _, trig := range []gp.TriggerKind{gp.TriggerMention, gp.TriggerReviewRequest, gp.TriggerAssignment} {
+	for _, trig := range []gp.TriggerKind{gp.TriggerMention, gp.TriggerLabel, gp.TriggerReviewRequest, gp.TriggerAssignment} {
 		if !c.SupportsTrigger(trig) {
 			t.Errorf("%s should be declared", trig)
 		}
-	}
-	if c.SupportsTrigger(gp.TriggerLabel) {
-		t.Error("a label is not a trigger")
 	}
 	if c.CredentialModel != gp.CredentialEphemeral || c.WebhookScope != gp.WebhookApp || c.StatusKind != gp.StatusCheckRun {
 		t.Errorf("unexpected model: %+v", c)
@@ -306,8 +303,11 @@ func TestWebhook_Details(t *testing.T) {
 	if got := parseOne(t, p, pull("ready_for_review", nil)); got.Action != "ready" {
 		t.Errorf("ready: %q", got.Action)
 	}
-	// Requests and assignments that do not name this app are dropped, as are labels.
-	for _, a := range []string{"labeled", "unlabeled", "assigned", "review_requested", "locked"} {
+	if got := parseOne(t, p, pull("labeled", nil)); got.Kind != gp.EventLabel || got.Label != "paca" {
+		t.Errorf("labeled: %+v", got)
+	}
+	// Requests and assignments that do not name this app are dropped.
+	for _, a := range []string{"unlabeled", "assigned", "review_requested", "locked"} {
 		if evs, _ := p.VerifyAndParseWebhook(bg, pull(a, nil)); len(evs) != 0 {
 			t.Errorf("%s should be dropped", a)
 		}
@@ -743,5 +743,19 @@ func TestMintCredential_ReportsTheRequestedLifetimeWhenShorter(t *testing.T) {
 	long, err := p.MintCredential(bg, gp.MintRequest{Target: webTarget(), Access: gp.AccessRead, TTLSeconds: 7 * 24 * 3600})
 	if err != nil || until(long) > 61*time.Minute {
 		t.Fatalf("a longer request cannot extend a token: %v %v", until(long), err)
+	}
+}
+
+// An App only receives the events its manifest subscribes to, so every
+// delivery the adapter understands must be listed there.
+func TestManifest_SubscribesToEveryEventTheAdapterHandles(t *testing.T) {
+	have := map[string]bool{}
+	for _, e := range manifestEvents {
+		have[e] = true
+	}
+	for _, e := range []string{"issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment", "check_run", "push"} {
+		if !have[e] {
+			t.Errorf("the manifest does not subscribe to %q", e)
+		}
 	}
 }

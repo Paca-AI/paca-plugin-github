@@ -34,9 +34,9 @@ func newGHProvider(store spiStore) *ghProvider {
 }
 
 // Describe implements gp.Provider. Capabilities are declared honestly:
-//   - review_request / assignment are not declared: an ordinary GitHub App bot
-//     cannot be a requested reviewer or an assignee, so those events never
-//     address the bot (users mention it or add a label instead);
+//   - review_request / assignment are declared for requests and assignments that
+//     name the App's own bot; GitHub's pickers list people and teams, so for an
+//     ordinary App a mention or a label is the dependable way to address the bot;
 //   - code_search, rerun_checks, reactions and webhook_management are not
 //     implemented (the app-level webhook is managed by core, not per repo).
 func (p *ghProvider) Describe() gp.Info {
@@ -53,7 +53,7 @@ func (p *ghProvider) Describe() gp.Info {
 			CredentialModel:    gp.CredentialEphemeral,
 			WebhookScope:       gp.WebhookApp,
 			StatusKind:         gp.StatusCheckRun,
-			Triggers:           []gp.TriggerKind{gp.TriggerMention, gp.TriggerReviewRequest, gp.TriggerAssignment, gp.TriggerCIFailure, gp.TriggerOwnCRFeedback, gp.TriggerAutoReview},
+			Triggers:           []gp.TriggerKind{gp.TriggerMention, gp.TriggerLabel, gp.TriggerReviewRequest, gp.TriggerAssignment, gp.TriggerCIFailure, gp.TriggerOwnCRFeedback, gp.TriggerAutoReview},
 			MultipleIdentities: true,
 
 			ResolveThreads:   true,

@@ -47,6 +47,7 @@ var manifestEvents = []string{
 	"pull_request_review_comment",
 	"pull_request_review_thread",
 	"issue_comment",
+	"issues",
 	"check_run",
 	"check_suite",
 }

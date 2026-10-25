@@ -5,9 +5,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/netip"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -90,6 +90,8 @@ func randomHex(nBytes int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// isLocalURL reports whether rawURL points at this machine or a private
+// network, where GitHub cannot deliver a webhook.
 func isLocalURL(rawURL string) bool {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -97,23 +99,23 @@ func isLocalURL(rawURL string) bool {
 	}
 	host := strings.ToLower(u.Hostname())
 	switch {
-	case host == "", host == "localhost", host == "::1", host == "0.0.0.0":
+	case host == "", host == "localhost":
 		return true
 	case strings.HasSuffix(host, ".local"), strings.HasSuffix(host, ".internal"),
 		strings.HasSuffix(host, ".localhost"), strings.HasSuffix(host, ".lan"):
 		return true
-	case strings.HasPrefix(host, "127."), strings.HasPrefix(host, "10."), strings.HasPrefix(host, "192.168."):
-		return true
-	case strings.HasPrefix(host, "172."):
-		parts := strings.Split(host, ".")
-		if len(parts) > 1 {
-			if n, err := strconv.Atoi(parts[1]); err == nil && n >= 16 && n <= 31 {
-				return true
-			}
-		}
 	}
-	return false
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
+	}
+	ip = ip.Unmap()
+	return ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		cgnat.Contains(ip)
 }
+
+// cgnat is the carrier-grade NAT range (RFC 6598), which is not routable either.
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
 
 func verifyHMAC(payload []byte, secret, signatureHeader string) bool {
 	const prefix = "sha256="

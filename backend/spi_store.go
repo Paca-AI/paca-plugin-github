@@ -24,6 +24,10 @@ type spiStore interface {
 	saveSetup(s setupSession) error
 	loadSetup(state string) (setupSession, error)
 	updateSetup(s setupSession) error
+	// claimSetupCode marks the setup's manifest code as used and reports
+	// whether this call was the one that did, so two concurrent completions
+	// cannot both exchange the same code.
+	claimSetupCode(state string) (bool, error)
 
 	cacheGet(key string) (token string, expires time.Time, ok bool)
 	cacheSet(key, token string, expires time.Time)
@@ -59,7 +63,6 @@ type installRecord struct {
 // setupSession is one manifest-flow attempt, keyed by its single-use state.
 type setupSession struct {
 	State     string
-	AppKey    string
 	Scope     string // shared | agent
 	AgentID   string
 	AppName   string

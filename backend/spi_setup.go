@@ -52,12 +52,8 @@ func (p *ghProvider) BeginIdentitySetup(_ context.Context, req gp.BeginSetupRequ
 	if err != nil {
 		return gp.SetupStep{}, gp.Errorf(gp.CodeInternal, "could not generate state")
 	}
-	appKey, err := randomHex(16)
-	if err != nil {
-		return gp.SetupStep{}, gp.Errorf(gp.CodeInternal, "could not generate state")
-	}
 	if err := p.store.saveSetup(setupSession{
-		State: state, AppKey: appKey, Scope: string(req.Scope), AgentID: req.AgentID,
+		State: state, Scope: string(req.Scope), AgentID: req.AgentID,
 		AppName: name, OwnerOrg: org, ExpiresAt: p.now().Add(setupSessionLife),
 	}); err != nil {
 		return gp.SetupStep{}, gp.Errorf(gp.CodeInternal, "could not start setup")
@@ -132,15 +128,17 @@ func identityOf(app appRecord) gp.Identity {
 
 // completeCreated is leg 1: manifest code → the App's credentials.
 func (p *ghProvider) completeCreated(s setupSession, code string) (gp.Identity, error) {
-	if s.CodeUsed {
-		return gp.Identity{}, gp.Errorf(gp.CodeForbidden, "this setup code was already used")
-	}
-	// Mark the code used before exchanging it: GitHub's codes are single-use and
-	// the response is the only time the private key is ever shown.
-	s.CodeUsed = true
-	if err := p.store.updateSetup(s); err != nil {
+	// Claim the code before exchanging it: GitHub's codes are single-use and
+	// the response is the only time the private key is ever shown. The claim is
+	// atomic, so concurrent completions cannot both get past it.
+	claimed, err := p.store.claimSetupCode(s.State)
+	if err != nil {
 		return gp.Identity{}, gp.Errorf(gp.CodeInternal, "could not record setup progress")
 	}
+	if !claimed {
+		return gp.Identity{}, gp.Errorf(gp.CodeForbidden, "this setup code was already used")
+	}
+	s.CodeUsed = true
 	conv, err := (&ghAPI{}).convertManifest(code)
 	if err != nil {
 		return gp.Identity{}, err

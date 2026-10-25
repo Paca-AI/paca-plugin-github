@@ -105,6 +105,9 @@ func (p *ghProvider) CompleteAccessGrant(_ context.Context, req gp.CompleteAcces
 	if err := api.get("/app/installations/"+strconv.FormatInt(instID, 10), &gi); err != nil {
 		return gp.AccessGrant{}, err
 	}
+	if s.OwnerOrg != "" && !strings.EqualFold(gi.Account.Login, s.OwnerOrg) {
+		return gp.AccessGrant{}, gp.Errorf(gp.CodeConflict, "the App was installed on %q, not on %q: install it on the requested account", gi.Account.Login, s.OwnerOrg)
+	}
 	if err := p.store.upsertInstallation(app.ID, installFrom(gi)); err != nil {
 		return gp.AccessGrant{}, gp.Errorf(gp.CodeInternal, "could not store the installation")
 	}

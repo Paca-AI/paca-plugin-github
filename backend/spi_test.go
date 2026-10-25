@@ -759,3 +759,28 @@ func TestManifest_SubscribesToEveryEventTheAdapterHandles(t *testing.T) {
 		}
 	}
 }
+
+func TestIsLocalURL(t *testing.T) {
+	for url, want := range map[string]bool{
+		"http://localhost:8080/x": true, "http://127.0.0.1/x": true, "http://[::1]/x": true,
+		"http://10.1.2.3/x": true, "http://192.168.0.5/x": true, "http://172.16.0.1/x": true,
+		"http://169.254.169.254/x": true, "http://100.64.1.1/x": true, "http://[fd00::1]/x": true,
+		"http://paca.lan/x": true, "https://paca.example.com/x": false, "http://172.32.0.1/x": false,
+		"http://8.8.8.8/x": false, "http://100.128.0.1/x": false,
+	} {
+		if got := isLocalURL(url); got != want {
+			t.Errorf("isLocalURL(%q) = %v, want %v", url, got, want)
+		}
+	}
+}
+
+func TestClaimSetupCodeIsSingleUse(t *testing.T) {
+	st := newMemStore()
+	_ = st.saveSetup(setupSession{State: "s"})
+	if ok, err := st.claimSetupCode("s"); !ok || err != nil {
+		t.Fatalf("first claim = %v %v", ok, err)
+	}
+	if ok, _ := st.claimSetupCode("s"); ok {
+		t.Error("second claim succeeded")
+	}
+}

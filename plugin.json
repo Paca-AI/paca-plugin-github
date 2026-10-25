@@ -10,7 +10,7 @@
     "allowedConfigKeys": ["ENCRYPTION_KEY"],
     "allowedOutboundDomains": ["api.github.com"],
     "sensitiveFields": {
-      "github_apps": ["client_secret_enc", "webhook_secret_enc", "private_key_enc"]
+      "github_apps": ["webhook_secret_enc", "private_key_enc"]
     }
   }
 }

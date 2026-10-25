@@ -21,8 +21,12 @@ The plugin has no HTTP routes of its own: core calls the internal-only `POST /_g
 ### Backend
 
 - `spi_*.go` implement the provider operations; the conformance suite (`spi_conformance_test.go`) runs them against a fake GitHub.
-- Owns the schema `plugin_data_com_paca_github` (`github_apps`, `github_app_installations`, `github_manifest_sessions`); App private keys, client secrets and webhook secrets are stored encrypted with AES-256-GCM using the `ENCRYPTION_KEY` config value.
+- Owns the schema `plugin_data_com_paca_github` (`github_apps`, `github_app_installations`, `github_manifest_sessions`); App private keys and webhook secrets are stored encrypted with AES-256-GCM using the `ENCRYPTION_KEY` config value.
 - Personal access tokens are not supported: every connection is a GitHub App installation.
+
+### Upgrading from 0.4.x
+
+Migration `0002_git_provider.sql` **drops** the previous release's tables (`github_integrations`, `github_repositories`, `github_pull_requests`, `github_task_branches`, `github_task_pr_links`). Nothing is migrated, because a personal access token cannot back a provider identity. Export anything you still need from `plugin_data_com_paca_github` before upgrading, then set up a GitHub App identity and relink repositories in Paca.
 
 ### Build
 

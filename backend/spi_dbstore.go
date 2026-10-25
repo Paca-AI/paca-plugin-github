@@ -65,10 +65,6 @@ func (s dbStore) installations(appID string) ([]installRecord, error) {
 }
 
 func (s dbStore) createApp(a appRecord) (string, error) {
-	key, err := randomHex(16)
-	if err != nil {
-		return "", err
-	}
 	pem, err := s.p.encrypt(a.PrivateKeyPEM)
 	if err != nil {
 		return "", err
@@ -79,9 +75,9 @@ func (s dbStore) createApp(a appRecord) (string, error) {
 	}
 	now := nowStr()
 	r, err := s.db.Query(`
-		INSERT INTO github_apps (app_key, github_app_id, slug, name, owner_login, html_url, webhook_secret_enc, private_key_enc, webhook_active, created_by, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'git-provider',$10,$10) RETURNING id`,
-		key, a.GitHubAppID, a.Slug, a.Name, a.OwnerLogin, a.HTMLURL, hook, pem, a.WebhookActive, now)
+		INSERT INTO github_apps (github_app_id, slug, name, owner_login, html_url, webhook_secret_enc, private_key_enc, webhook_active, created_by, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'git-provider',$9,$9) RETURNING id`,
+		a.GitHubAppID, a.Slug, a.Name, a.OwnerLogin, a.HTMLURL, hook, pem, a.WebhookActive, now)
 	if err != nil {
 		return "", err
 	}
@@ -130,14 +126,14 @@ func (s dbStore) saveSetup(x setupSession) error {
 		appID = x.AppID
 	}
 	_, err := s.db.Exec(`
-		INSERT INTO github_manifest_sessions (state, app_key, created_by, app_name, owner_org, scope, agent_id, app_id, expires_at, created_at)
-		VALUES ($1,$2,'git-provider',$3,$4,$5,$6,$7,$8,$9)`,
-		x.State, x.AppKey, x.AppName, x.OwnerOrg, x.Scope, x.AgentID, appID, x.ExpiresAt.UTC().Format(time.RFC3339Nano), nowStr())
+		INSERT INTO github_manifest_sessions (state, created_by, app_name, owner_org, scope, agent_id, app_id, expires_at, created_at)
+		VALUES ($1,'git-provider',$2,$3,$4,$5,$6,$7,$8)`,
+		x.State, x.AppName, x.OwnerOrg, x.Scope, x.AgentID, appID, x.ExpiresAt.UTC().Format(time.RFC3339Nano), nowStr())
 	return err
 }
 
 func (s dbStore) loadSetup(state string) (setupSession, error) {
-	r, err := s.db.Query(`SELECT state, app_key, app_name, owner_org, scope, agent_id, app_id, code_used_at, completed_at, expires_at FROM github_manifest_sessions WHERE state = $1`, state)
+	r, err := s.db.Query(`SELECT state, app_name, owner_org, scope, agent_id, app_id, code_used_at, completed_at, expires_at FROM github_manifest_sessions WHERE state = $1`, state)
 	if err != nil {
 		return setupSession{}, err
 	}
@@ -147,7 +143,7 @@ func (s dbStore) loadSetup(state string) (setupSession, error) {
 	sc := newRowScanner(r.Columns, r.Rows[0])
 	exp, _ := time.Parse(time.RFC3339Nano, sc.str("expires_at"))
 	return setupSession{
-		State: sc.str("state"), AppKey: sc.str("app_key"), Scope: sc.str("scope"), AgentID: sc.str("agent_id"),
+		State: sc.str("state"), Scope: sc.str("scope"), AgentID: sc.str("agent_id"),
 		AppName: sc.str("app_name"), OwnerOrg: sc.str("owner_org"), AppID: sc.str("app_id"),
 		CodeUsed: sc.strPtr("code_used_at") != nil, Completed: sc.strPtr("completed_at") != nil, ExpiresAt: exp,
 	}, nil
@@ -167,6 +163,11 @@ func (s dbStore) updateSetup(x setupSession) error {
 	_, err := s.db.Exec(`UPDATE github_manifest_sessions SET app_id = $2, code_used_at = COALESCE(code_used_at, $3), completed_at = COALESCE(completed_at, $4) WHERE state = $1`,
 		x.State, appID, codeUsed, completed)
 	return err
+}
+
+func (s dbStore) claimSetupCode(state string) (bool, error) {
+	n, err := s.db.Exec(`UPDATE github_manifest_sessions SET code_used_at = $2 WHERE state = $1 AND code_used_at IS NULL`, state, nowStr())
+	return n == 1, err
 }
 
 func (s dbStore) cacheGet(key string) (string, time.Time, bool) {

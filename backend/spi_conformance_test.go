@@ -125,6 +125,17 @@ func (m *memStore) updateSetup(s setupSession) error {
 	m.setups[s.State] = s
 	return nil
 }
+func (m *memStore) claimSetupCode(state string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.setups[state]
+	if !ok || s.CodeUsed {
+		return false, nil
+	}
+	s.CodeUsed = true
+	m.setups[state] = s
+	return true, nil
+}
 func (m *memStore) cacheGet(key string) (string, time.Time, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

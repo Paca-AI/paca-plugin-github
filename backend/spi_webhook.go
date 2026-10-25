@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	gp "github.com/Paca-AI/plugin-sdk-go/gitprovider"
 )
@@ -335,6 +336,18 @@ func mentionsHandle(text, handle string) bool {
 	if handle == "" {
 		return false
 	}
+	return mentionRegexp(handle).MatchString(text)
+}
+
+// mentionRegexps caches the compiled pattern per handle: every event of a
+// delivery is checked against the same few handles.
+var mentionRegexps sync.Map // handle → *regexp.Regexp
+
+func mentionRegexp(handle string) *regexp.Regexp {
+	if re, ok := mentionRegexps.Load(handle); ok {
+		return re.(*regexp.Regexp)
+	}
 	re := regexp.MustCompile(`(?i)(?:^|[^\w@])@` + regexp.QuoteMeta(handle) + `(?:\[bot\])?(?:$|[^\w-])`)
-	return re.MatchString(text)
+	mentionRegexps.Store(handle, re)
+	return re
 }

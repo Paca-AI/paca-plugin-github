@@ -88,7 +88,7 @@ func newTestDBStore() dbStore { return dbStore{p: &githubPlugin{}, db: &fakeSQL{
 func TestDBStore_AccessSessionKeepsItsApp(t *testing.T) {
 	s := newTestDBStore()
 	in := setupSession{
-		State: "st-1", AppKey: "k", Scope: accessScope, OwnerOrg: "acme",
+		State: "st-1", Scope: accessScope, OwnerOrg: "acme",
 		AppID: "8d0e1a2b-0000-4000-8000-000000000001", ExpiresAt: time.Now().Add(time.Hour).Truncate(time.Millisecond),
 	}
 	if err := s.saveSetup(in); err != nil {
@@ -108,7 +108,7 @@ func TestDBStore_AccessSessionKeepsItsApp(t *testing.T) {
 
 func TestDBStore_IdentitySetupSessionHasNoAppYet(t *testing.T) {
 	s := newTestDBStore()
-	if err := s.saveSetup(setupSession{State: "st-2", AppKey: "k", Scope: "shared", AppName: "Paca", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+	if err := s.saveSetup(setupSession{State: "st-2", Scope: "shared", AppName: "Paca", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.loadSetup("st-2")

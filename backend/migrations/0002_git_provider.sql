@@ -8,17 +8,11 @@
 
 CREATE TABLE IF NOT EXISTS github_apps (
     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    -- Random token embedded in the app's webhook URL. It is generated before
-    -- GitHub assigns the numeric app id, so it is what routes a delivery to
-    -- the right webhook secret.
-    app_key           TEXT        NOT NULL UNIQUE,
     github_app_id     BIGINT      NOT NULL,
     slug              TEXT        NOT NULL,
     name              TEXT        NOT NULL,
     owner_login       TEXT        NOT NULL DEFAULT '',
     html_url          TEXT        NOT NULL DEFAULT '',
-    client_id         TEXT        NOT NULL DEFAULT '',
-    client_secret_enc TEXT        NOT NULL DEFAULT '',
     webhook_secret_enc TEXT       NOT NULL DEFAULT '',
     private_key_enc   TEXT        NOT NULL,
     webhook_active    BOOLEAN     NOT NULL DEFAULT TRUE,
@@ -44,7 +38,6 @@ CREATE TABLE IF NOT EXISTS github_app_installations (
 -- GitHub echoes back on both redirects.
 CREATE TABLE IF NOT EXISTS github_manifest_sessions (
     state              TEXT        PRIMARY KEY,
-    app_key            TEXT        NOT NULL,
     created_by         TEXT        NOT NULL,
     app_name           TEXT        NOT NULL DEFAULT '',
     owner_org          TEXT        NOT NULL DEFAULT '',

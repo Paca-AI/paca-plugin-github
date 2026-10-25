@@ -310,3 +310,18 @@ func TestUninstalledAppIsForgottenAndCanBeGrantedAgain(t *testing.T) {
 		t.Errorf("after reinstalling: %+v %v", res, err)
 	}
 }
+
+func TestAccessGrant_CompleteRejectsAnInstallationOnAnotherAccount(t *testing.T) {
+	p, g, st := seededProvider(t)
+	st.installs[fakeAppRowID] = nil
+	g.installs[199] = fakeInstall{Login: "someone-else", Type: "User"}
+	step, _ := p.BeginAccessGrant(bg, grantReq("acme"))
+
+	_, err := p.CompleteAccessGrant(bg, gp.CompleteAccessRequest{Identity: gp.IdentityRef{ID: fakeAppRowID}, State: step.State, Params: map[string]string{"installation_id": "199"}})
+	if codeOf(t, err) != gp.CodeConflict {
+		t.Fatalf("err = %v, want conflict", err)
+	}
+	if ins := st.installs[fakeAppRowID]; len(ins) != 0 {
+		t.Errorf("installation recorded despite the mismatch: %+v", ins)
+	}
+}

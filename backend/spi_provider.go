@@ -53,7 +53,7 @@ func (p *ghProvider) Describe() gp.Info {
 			CredentialModel:    gp.CredentialEphemeral,
 			WebhookScope:       gp.WebhookApp,
 			StatusKind:         gp.StatusCheckRun,
-			Triggers:           []gp.TriggerKind{gp.TriggerMention, gp.TriggerLabel, gp.TriggerCIFailure, gp.TriggerOwnCRFeedback, gp.TriggerAutoReview},
+			Triggers:           []gp.TriggerKind{gp.TriggerMention, gp.TriggerReviewRequest, gp.TriggerAssignment, gp.TriggerCIFailure, gp.TriggerOwnCRFeedback, gp.TriggerAutoReview},
 			MultipleIdentities: true,
 
 			ResolveThreads:   true,

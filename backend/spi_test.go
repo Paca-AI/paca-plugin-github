@@ -35,15 +35,13 @@ func webTarget() gp.Target {
 func TestDescribe_DeclaresWhatGitHubCanDo(t *testing.T) {
 	p, _, _ := seededProvider(t)
 	c := p.Describe().Capabilities
-	for _, trig := range []gp.TriggerKind{gp.TriggerReviewRequest, gp.TriggerAssignment} {
-		if c.SupportsTrigger(trig) {
-			t.Errorf("%s must not be declared: an ordinary GitHub App bot cannot be requested or assigned", trig)
-		}
-	}
-	for _, trig := range []gp.TriggerKind{gp.TriggerMention, gp.TriggerLabel} {
+	for _, trig := range []gp.TriggerKind{gp.TriggerMention, gp.TriggerReviewRequest, gp.TriggerAssignment} {
 		if !c.SupportsTrigger(trig) {
 			t.Errorf("%s should be declared", trig)
 		}
+	}
+	if c.SupportsTrigger(gp.TriggerLabel) {
+		t.Error("a label is not a trigger")
 	}
 	if c.CredentialModel != gp.CredentialEphemeral || c.WebhookScope != gp.WebhookApp || c.StatusKind != gp.StatusCheckRun {
 		t.Errorf("unexpected model: %+v", c)
@@ -308,10 +306,8 @@ func TestWebhook_Details(t *testing.T) {
 	if got := parseOne(t, p, pull("ready_for_review", nil)); got.Action != "ready" {
 		t.Errorf("ready: %q", got.Action)
 	}
-	if got := parseOne(t, p, pull("labeled", nil)); got.Kind != gp.EventLabel || got.Label != "paca" {
-		t.Errorf("labeled: %+v", got)
-	}
-	for _, a := range []string{"unlabeled", "assigned", "review_requested", "locked"} {
+	// Requests and assignments that do not name this app are dropped, as are labels.
+	for _, a := range []string{"labeled", "unlabeled", "assigned", "review_requested", "locked"} {
 		if evs, _ := p.VerifyAndParseWebhook(bg, pull(a, nil)); len(evs) != 0 {
 			t.Errorf("%s should be dropped", a)
 		}

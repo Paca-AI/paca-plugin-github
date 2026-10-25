@@ -57,9 +57,10 @@ type ghDelivery struct {
 		FullName      string `json:"full_name"`
 		DefaultBranch string `json:"default_branch"`
 	} `json:"repository"`
-	Label *struct {
-		Name string `json:"name"`
-	} `json:"label"`
+	// RequestedReviewer is who a review was requested from (review_requested)
+	// and Assignee who an issue or pull request was assigned to (assigned).
+	RequestedReviewer *ghUser `json:"requested_reviewer"`
+	Assignee          *ghUser `json:"assignee"`
 
 	Issue *struct {
 		Number      int             `json:"number"`
@@ -235,11 +236,20 @@ func (d *ghDelivery) normalize(name string, app appRecord) (gp.Event, bool) {
 			if d.PullRequest.Merged {
 				ev.Action = "merged"
 			}
-		case "labeled":
-			if d.Label == nil {
+		case "review_requested":
+			// Only a request naming this app is for Paca; requests for people or
+			// teams are the repository's own business.
+			if !isApp(d.RequestedReviewer, app) {
 				return gp.Event{}, false
 			}
-			ev.Kind, ev.Action, ev.Label = gp.EventLabel, "labeled", d.Label.Name
+			ev.Kind, ev.Action, ev.Text = gp.EventReviewRequest, "requested", d.PullRequest.Title
+			ev.Addressed = append(ev.Addressed, gp.Addressed{IdentityID: app.ID, Via: gp.ViaReviewRequest})
+		case "assigned":
+			if !isApp(d.Assignee, app) {
+				return gp.Event{}, false
+			}
+			ev.Kind, ev.Action, ev.Text = gp.EventAssignment, "assigned", d.PullRequest.Title
+			ev.Addressed = append(ev.Addressed, gp.Addressed{IdentityID: app.ID, Via: gp.ViaAssignment})
 		default:
 			return gp.Event{}, false
 		}
@@ -255,11 +265,13 @@ func (d *ghDelivery) normalize(name string, app appRecord) (gp.Event, bool) {
 			ev.Kind, ev.Action = gp.EventComment, "created"
 			ev.Text = strings.TrimSpace(d.Issue.Title + "\n\n" + d.Issue.Body)
 			address(d.Issue.Title + "\n" + d.Issue.Body)
-		case "labeled":
-			if d.Label == nil {
+		case "assigned":
+			if !isApp(d.Assignee, app) {
 				return gp.Event{}, false
 			}
-			ev.Kind, ev.Action, ev.Label = gp.EventLabel, "labeled", d.Label.Name
+			ev.Kind, ev.Action = gp.EventAssignment, "assigned"
+			ev.Text = strings.TrimSpace(d.Issue.Title + "\n\n" + d.Issue.Body)
+			ev.Addressed = append(ev.Addressed, gp.Addressed{IdentityID: app.ID, Via: gp.ViaAssignment})
 		default:
 			return gp.Event{}, false
 		}
@@ -296,6 +308,11 @@ func (d *ghDelivery) normalize(name string, app appRecord) (gp.Event, bool) {
 		return gp.Event{}, false
 	}
 	return ev, true
+}
+
+// isApp reports whether u is the app's own bot account ("<slug>[bot]").
+func isApp(u *ghUser, app appRecord) bool {
+	return u != nil && app.Slug != "" && strings.EqualFold(u.Login, app.Slug+"[bot]")
 }
 
 // mentionsHandle reports whether text @-mentions handle (also as handle[bot]).

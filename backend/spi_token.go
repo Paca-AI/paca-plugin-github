@@ -94,6 +94,13 @@ func (p *ghProvider) completeMigratedToken(t *tokenRecord) error {
 	if err := p.store.updateToken(*t); err != nil {
 		return gp.Errorf(gp.CodeInternal, "could not store the token")
 	}
+	// updateToken only fills blanks, so a concurrent first use may have stored a
+	// different secret first: read back what won, or hooks signed with ours fail.
+	won, err := p.store.loadToken(t.ID)
+	if err != nil {
+		return gp.Errorf(gp.CodeInternal, "could not store the token")
+	}
+	*t = won
 	return nil
 }
 
@@ -199,6 +206,9 @@ func (p *ghProvider) completeToken(s setupSession, params map[string]string) (gp
 	rec.ID = id
 	s.CodeUsed, s.Completed = true, true
 	if err := p.store.updateSetup(s); err != nil {
+		// The state is spent and the caller sees a failure: do not leave a token
+		// nobody was told about.
+		_ = p.store.deleteToken(id)
 		return gp.Identity{}, gp.Errorf(gp.CodeInternal, "could not record setup progress")
 	}
 	ident := identityOfToken(rec)
@@ -249,24 +259,37 @@ func (p *ghProvider) listTokenRepositories(tok tokenRecord, req gp.ListReposRequ
 		}
 		page = n
 	}
-	var batch []ghRepoJSON
-	path := "/user/repos?affiliation=owner,collaborator,organization_member&sort=full_name&per_page=" + strconv.Itoa(per) + "&page=" + strconv.Itoa(page)
-	if err := (&ghAPI{token: tok.Token}).get(path, &batch); err != nil {
-		return gp.RepositoryPage{}, err
-	}
-	out := gp.RepositoryPage{Items: []gp.Repository{}}
 	q := strings.ToLower(strings.TrimSpace(req.Query))
-	for _, r := range batch {
-		if q != "" && !strings.Contains(strings.ToLower(r.FullName), q) {
-			continue
+	out := gp.RepositoryPage{Items: []gp.Repository{}}
+	// GitHub cannot filter this listing, so with a query the pages are scanned
+	// (bounded) until a page's worth of matches is found: a match on a later page
+	// is not hidden behind an empty first page.
+	for scanned := 0; scanned < maxTokenListPages; scanned++ {
+		var batch []ghRepoJSON
+		path := "/user/repos?affiliation=owner,collaborator,organization_member&sort=full_name&per_page=" + strconv.Itoa(per) + "&page=" + strconv.Itoa(page)
+		if err := (&ghAPI{token: tok.Token}).get(path, &batch); err != nil {
+			return gp.RepositoryPage{}, err
 		}
-		out.Items = append(out.Items, gp.Repository{Ref: repoRefOf(r, 0), Private: r.Private, Description: r.Description})
+		for _, r := range batch {
+			if q != "" && !strings.Contains(strings.ToLower(r.FullName), q) {
+				continue
+			}
+			out.Items = append(out.Items, gp.Repository{Ref: repoRefOf(r, 0), Private: r.Private, Description: r.Description})
+		}
+		page++
+		if len(batch) < per {
+			return out, nil
+		}
+		if q == "" || len(out.Items) >= per {
+			break
+		}
 	}
-	if len(batch) >= per {
-		out.NextCursor = strconv.Itoa(page + 1)
-	}
+	out.NextCursor = strconv.Itoa(page)
 	return out, nil
 }
+
+// maxTokenListPages bounds how many pages one filtered listing scans.
+const maxTokenListPages = 10
 
 // resolveWithToken looks a repository up as a token identity. A repository the
 // token cannot see is not_found, like an App that is not installed there.

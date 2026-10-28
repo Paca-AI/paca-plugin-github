@@ -93,6 +93,8 @@ func (s dbStore) createToken(t tokenRecord) (string, error) {
 	return newRowScanner(r.Columns, r.Rows[0]).str("id"), nil
 }
 
+// updateToken fills a token's blanks (login, name, webhook secret) and never
+// overwrites a value that is already there, so two first uses cannot disagree.
 func (s dbStore) updateToken(t tokenRecord) error {
 	hook := ""
 	if t.WebhookSecret != "" {
@@ -101,7 +103,11 @@ func (s dbStore) updateToken(t tokenRecord) error {
 			return err
 		}
 	}
-	_, err := s.db.Exec(`UPDATE github_tokens SET login = $2, name = $3, webhook_secret_enc = $4, updated_at = $5 WHERE id = $1`,
+	_, err := s.db.Exec(`UPDATE github_tokens SET
+		login = CASE WHEN login = '' THEN $2 ELSE login END,
+		name = CASE WHEN login = '' THEN $3 ELSE name END,
+		webhook_secret_enc = CASE WHEN webhook_secret_enc = '' THEN $4 ELSE webhook_secret_enc END,
+		updated_at = $5 WHERE id = $1`,
 		t.ID, t.Login, t.Name, hook, nowStr())
 	return err
 }

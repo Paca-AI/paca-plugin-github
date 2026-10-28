@@ -66,7 +66,14 @@ func (m *memStore) updateToken(t tokenRecord) error {
 	if _, ok := m.tokens[t.ID]; !ok {
 		return errNoSuchToken
 	}
-	m.tokens[t.ID] = t
+	cur := m.tokens[t.ID]
+	if cur.Login == "" {
+		cur.Login, cur.Name = t.Login, t.Name
+	}
+	if cur.WebhookSecret == "" {
+		cur.WebhookSecret = t.WebhookSecret
+	}
+	m.tokens[t.ID] = cur
 	return nil
 }
 func (m *memStore) deleteToken(id string) error {

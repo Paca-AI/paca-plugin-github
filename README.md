@@ -4,7 +4,7 @@ First-party Paca plugin that is the GitHub provider for Paca's platform-neutral 
 
 Core owns repositories, project links, identities, change requests and audit. This plugin only adapts GitHub to the provider SPI:
 
-- Connection setup, either through the GitHub App manifest flow (an App per workspace, project or agent) or by pasting a personal access token and a webhook secret. A workspace or project may hold several connections of either kind.
+- Connection setup, either through the GitHub App manifest flow (an App per workspace, project or agent) or by pasting a personal access token (the webhook secret is generated). A workspace or project may hold several connections of either kind.
 - Apps: per-owner installation grants, requested when a repository is linked, and short-lived installation tokens for read/write repository credentials (never stored in remotes).
 - Tokens: static credentials handed to git per command by core, a webhook registered on each linked repository with a generated secret (`webhook_management`; the token needs the webhook permission), and commit statuses instead of check runs. A token acts as its owner on GitHub, so a dedicated machine user is recommended.
 - Repository listing, webhook verification and event normalisation.

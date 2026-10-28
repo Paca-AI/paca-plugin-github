@@ -48,6 +48,69 @@ func (s dbStore) loadApp(id string) (appRecord, error) {
 	}, nil
 }
 
+func (s dbStore) loadToken(id string) (tokenRecord, error) {
+	r, err := s.db.Query(`SELECT id, login, name, token_enc, webhook_secret_enc FROM github_tokens WHERE id = $1`, id)
+	if err != nil {
+		return tokenRecord{}, err
+	}
+	if len(r.Rows) == 0 {
+		return tokenRecord{}, errNoSuchToken
+	}
+	sc := newRowScanner(r.Columns, r.Rows[0])
+	tok, err := s.p.decrypt(sc.str("token_enc"))
+	if err != nil {
+		return tokenRecord{}, err
+	}
+	// A token migrated from the previous release has no webhook secret yet.
+	secret := ""
+	if enc := sc.str("webhook_secret_enc"); enc != "" {
+		if secret, err = s.p.decrypt(enc); err != nil {
+			return tokenRecord{}, err
+		}
+	}
+	return tokenRecord{ID: sc.str("id"), Login: sc.str("login"), Name: sc.str("name"), Token: tok, WebhookSecret: secret}, nil
+}
+
+func (s dbStore) createToken(t tokenRecord) (string, error) {
+	tok, err := s.p.encrypt(t.Token)
+	if err != nil {
+		return "", err
+	}
+	hook, err := s.p.encrypt(t.WebhookSecret)
+	if err != nil {
+		return "", err
+	}
+	now := nowStr()
+	r, err := s.db.Query(`
+		INSERT INTO github_tokens (login, name, token_enc, webhook_secret_enc, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$5) RETURNING id`, t.Login, t.Name, tok, hook, now)
+	if err != nil {
+		return "", err
+	}
+	if len(r.Rows) == 0 {
+		return "", errNoSuchToken
+	}
+	return newRowScanner(r.Columns, r.Rows[0]).str("id"), nil
+}
+
+func (s dbStore) updateToken(t tokenRecord) error {
+	hook := ""
+	if t.WebhookSecret != "" {
+		var err error
+		if hook, err = s.p.encrypt(t.WebhookSecret); err != nil {
+			return err
+		}
+	}
+	_, err := s.db.Exec(`UPDATE github_tokens SET login = $2, name = $3, webhook_secret_enc = $4, updated_at = $5 WHERE id = $1`,
+		t.ID, t.Login, t.Name, hook, nowStr())
+	return err
+}
+
+func (s dbStore) deleteToken(id string) error {
+	_, err := s.db.Exec(`DELETE FROM github_tokens WHERE id = $1`, id)
+	return err
+}
+
 func (s dbStore) installations(appID string) ([]installRecord, error) {
 	r, err := s.db.Query(`SELECT id, installation_id, account_login, account_type, repository_selection, suspended_at FROM github_app_installations WHERE app_id = $1`, appID)
 	if err != nil {
@@ -126,14 +189,14 @@ func (s dbStore) saveSetup(x setupSession) error {
 		appID = x.AppID
 	}
 	_, err := s.db.Exec(`
-		INSERT INTO github_manifest_sessions (state, created_by, app_name, owner_org, scope, agent_id, app_id, expires_at, created_at)
-		VALUES ($1,'git-provider',$2,$3,$4,$5,$6,$7,$8)`,
-		x.State, x.AppName, x.OwnerOrg, x.Scope, x.AgentID, appID, x.ExpiresAt.UTC().Format(time.RFC3339Nano), nowStr())
+		INSERT INTO github_manifest_sessions (state, created_by, app_name, owner_org, scope, kind, agent_id, app_id, expires_at, created_at)
+		VALUES ($1,'git-provider',$2,$3,$4,$5,$6,$7,$8,$9)`,
+		x.State, x.AppName, x.OwnerOrg, x.Scope, x.Kind, x.AgentID, appID, x.ExpiresAt.UTC().Format(time.RFC3339Nano), nowStr())
 	return err
 }
 
 func (s dbStore) loadSetup(state string) (setupSession, error) {
-	r, err := s.db.Query(`SELECT state, app_name, owner_org, scope, agent_id, app_id, code_used_at, completed_at, expires_at FROM github_manifest_sessions WHERE state = $1`, state)
+	r, err := s.db.Query(`SELECT state, app_name, owner_org, scope, kind, agent_id, app_id, code_used_at, completed_at, expires_at FROM github_manifest_sessions WHERE state = $1`, state)
 	if err != nil {
 		return setupSession{}, err
 	}
@@ -143,7 +206,7 @@ func (s dbStore) loadSetup(state string) (setupSession, error) {
 	sc := newRowScanner(r.Columns, r.Rows[0])
 	exp, _ := time.Parse(time.RFC3339Nano, sc.str("expires_at"))
 	return setupSession{
-		State: sc.str("state"), Scope: sc.str("scope"), AgentID: sc.str("agent_id"),
+		State: sc.str("state"), Scope: sc.str("scope"), Kind: sc.str("kind"), AgentID: sc.str("agent_id"),
 		AppName: sc.str("app_name"), OwnerOrg: sc.str("owner_org"), AppID: sc.str("app_id"),
 		CodeUsed: sc.strPtr("code_used_at") != nil, Completed: sc.strPtr("completed_at") != nil, ExpiresAt: exp,
 	}, nil

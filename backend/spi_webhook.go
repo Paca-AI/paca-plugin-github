@@ -18,9 +18,16 @@ import (
 // webhook secret and turns the delivery into zero or more normalized events.
 // Event types Paca has no use for are dropped, not guessed at.
 func (p *ghProvider) VerifyAndParseWebhook(_ context.Context, req gp.WebhookRequest) ([]gp.Event, error) {
-	app, err := p.loadApp(req.Identity.ID)
+	ident, err := p.loadIdentity(req.Identity.ID)
 	if err != nil {
 		return nil, err
+	}
+	var app appRecord
+	if ident.app != nil {
+		app = *ident.app
+	} else {
+		app = ident.token.asBotRecord()
+		app.WebhookSecret = ident.token.WebhookSecret
 	}
 	sig := req.Headers["x-hub-signature-256"]
 	if app.WebhookSecret == "" || !verifyHMAC(req.Body, app.WebhookSecret, sig) {
@@ -325,9 +332,16 @@ func (d *ghDelivery) normalize(name string, app appRecord) (gp.Event, bool) {
 	return ev, true
 }
 
-// isApp reports whether u is the app's own bot account ("<slug>[bot]").
+// isApp reports whether u is the identity's own account: "<slug>[bot]" for an
+// App, the owner's login for a token.
 func isApp(u *ghUser, app appRecord) bool {
-	return u != nil && app.Slug != "" && strings.EqualFold(u.Login, app.Slug+"[bot]")
+	if u == nil || app.Slug == "" {
+		return false
+	}
+	if app.IsUser {
+		return strings.EqualFold(u.Login, app.Slug)
+	}
+	return strings.EqualFold(u.Login, app.Slug+"[bot]")
 }
 
 // mentionsHandle reports whether text @-mentions handle (also as handle[bot]).

@@ -21,8 +21,8 @@ const (
 
 // ghProvider is the GitHub implementation of the Git provider SPI
 // (gitprovider.v1): identities are GitHub Apps created through the manifest
-// flow, credentials are installation tokens, webhooks are the app-level
-// webhook core terminates. See docs/plugins/git-provider-spi.md in the Paca
+// flow (credentials are installation tokens, the webhook is app-level) or
+// personal access tokens (static credentials, a webhook per repository). See docs/plugins/git-provider-spi.md in the Paca
 // repository for the contract this implements.
 type ghProvider struct {
 	store spiStore
@@ -37,8 +37,9 @@ func newGHProvider(store spiStore) *ghProvider {
 //   - review_request / assignment are declared for requests and assignments that
 //     name the App's own bot; GitHub's pickers list people and teams, so for an
 //     ordinary App a mention or a label is the dependable way to address the bot;
-//   - code_search, rerun_checks, reactions and webhook_management are not
-//     implemented (the app-level webhook is managed by core, not per repo).
+//   - code_search, rerun_checks and reactions are not implemented;
+//   - webhook_management is for token identities, whose webhook is per
+//     repository (an App's webhook is app-level and managed by core).
 func (p *ghProvider) Describe() gp.Info {
 	return gp.Info{
 		SPIVersion:      gp.SPIVersion,
@@ -49,22 +50,29 @@ func (p *ghProvider) Describe() gp.Info {
 		SelfHostedHosts: false,
 		Terms:           gp.Terms{ChangeRequest: "Pull request", ChangeRequestPlural: "Pull requests", Repository: "Repository"},
 		Capabilities: gp.Capabilities{
-			IdentityKinds:      []gp.IdentityKind{gp.IdentityApp},
+			IdentityKinds:      []gp.IdentityKind{gp.IdentityApp, gp.IdentityToken},
 			CredentialModel:    gp.CredentialEphemeral,
 			WebhookScope:       gp.WebhookApp,
 			StatusKind:         gp.StatusCheckRun,
 			Triggers:           []gp.TriggerKind{gp.TriggerMention, gp.TriggerLabel, gp.TriggerReviewRequest, gp.TriggerAssignment, gp.TriggerCIFailure, gp.TriggerOwnCRFeedback, gp.TriggerAutoReview},
 			MultipleIdentities: true,
+			// An App is the default kind; a personal access token is static, has
+			// no installation to grant and delivers events per repository.
+			Kinds: []gp.KindProfile{
+				{Kind: gp.IdentityApp, CredentialModel: gp.CredentialEphemeral, WebhookScope: gp.WebhookApp, AccessGrants: true},
+				{Kind: gp.IdentityToken, CredentialModel: gp.CredentialStatic, WebhookScope: gp.WebhookRepo},
+			},
 
-			ResolveThreads:   true,
-			FileRead:         true,
-			Labels:           true,
-			ReviewerRequests: true,
-			Assignees:        true,
-			Merge:            true,
-			IdentityDeletion: true,
-			Branches:         true,
-			AccessGrants:     true,
+			ResolveThreads:    true,
+			FileRead:          true,
+			Labels:            true,
+			ReviewerRequests:  true,
+			Assignees:         true,
+			Merge:             true,
+			IdentityDeletion:  true,
+			WebhookManagement: true,
+			Branches:          true,
+			AccessGrants:      true,
 
 			BatchReview:         true,
 			HiddenMarkers:       true,
@@ -194,10 +202,14 @@ func (p *ghProvider) apiFor(t gp.Target) (*ghAPI, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	app, err := p.loadApp(t.Identity.ID)
+	ident, err := p.loadIdentity(t.Identity.ID)
 	if err != nil {
 		return nil, "", err
 	}
+	if ident.token != nil {
+		return &ghAPI{token: ident.token.Token, user: true}, repo, nil
+	}
+	app := *ident.app
 	in, err := p.installationFor(app, owner)
 	if err != nil {
 		return nil, "", err
@@ -230,10 +242,14 @@ func repoRefOf(r ghRepoJSON, installationID int64) gp.RepoRef {
 // ListRepositories implements gp.Provider. The cursor is "<installation>:<page>"
 // over the identity's installations in a stable order, so paging is exact.
 func (p *ghProvider) ListRepositories(_ context.Context, req gp.ListReposRequest) (gp.RepositoryPage, error) {
-	app, err := p.loadApp(req.Identity.ID)
+	ident, err := p.loadIdentity(req.Identity.ID)
 	if err != nil {
 		return gp.RepositoryPage{}, err
 	}
+	if ident.token != nil {
+		return p.listTokenRepositories(*ident.token, req)
+	}
+	app := *ident.app
 	list, err := p.store.installations(app.ID)
 	if err != nil {
 		return gp.RepositoryPage{}, gp.Errorf(gp.CodeInternal, "could not load installations")
@@ -341,11 +357,23 @@ func (p *ghProvider) ResolveRepository(_ context.Context, req gp.ResolveRepoRequ
 	}
 	var last error
 	for _, c := range req.Candidates {
-		app, err := p.loadApp(c.ID)
+		ident, err := p.loadIdentity(c.ID)
 		if err != nil {
 			last = err
 			continue
 		}
+		if ident.token != nil {
+			res, err := p.resolveWithToken(*ident.token, owner, name)
+			if err != nil {
+				if code := gp.AsError(err).Code; code == gp.CodeNotFound || code == gp.CodeForbidden {
+					last = gp.Errorf(gp.CodeNotFound, "the token cannot see %s/%s", owner, name)
+					continue
+				}
+				return gp.ResolvedRepository{}, err
+			}
+			return res, nil
+		}
+		app := *ident.app
 		in, err := p.installationFor(app, owner)
 		if err != nil {
 			last = err
@@ -411,10 +439,16 @@ func (p *ghProvider) MintCredential(_ context.Context, req gp.MintRequest) (gp.C
 	if !ok {
 		return gp.Credential{}, gp.Errorf(gp.CodeValidation, "repository must be owner/name")
 	}
-	app, err := p.loadApp(req.Target.Identity.ID)
+	ident, err := p.loadIdentity(req.Target.Identity.ID)
 	if err != nil {
 		return gp.Credential{}, err
 	}
+	if ident.token != nil {
+		// Static: the token cannot be narrowed to one repository or to read-only,
+		// and has no expiry Paca knows of. The core never hands it to an agent.
+		return gp.Credential{Username: tokenCredUsername, Secret: ident.token.Token}, nil
+	}
+	app := *ident.app
 	in, err := p.installationFor(app, owner)
 	if err != nil {
 		return gp.Credential{}, err

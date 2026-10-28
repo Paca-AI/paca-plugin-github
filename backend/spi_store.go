@@ -18,6 +18,14 @@ type spiStore interface {
 	// same App on the same account is dead and is removed.
 	upsertInstallation(appID string, i installRecord) error
 	deleteApp(id string) error
+
+	// Personal access token identities.
+	loadToken(id string) (tokenRecord, error)
+	createToken(t tokenRecord) (id string, err error)
+	// updateToken rewrites a token's login, name and webhook secret (the fields a
+	// migrated token fills in on first use).
+	updateToken(t tokenRecord) error
+	deleteToken(id string) error
 	// deleteInstallation forgets an installation GitHub no longer has.
 	deleteInstallation(appID string, installationID int64) error
 
@@ -35,6 +43,7 @@ type spiStore interface {
 }
 
 var errNoSuchApp = errors.New("github app not found")
+var errNoSuchToken = errors.New("github token not found")
 var errNoSuchSetup = errors.New("setup session not found")
 
 // appRecord is a GitHub App the instance created through the manifest flow.
@@ -48,6 +57,20 @@ type appRecord struct {
 	WebhookSecret string
 	PrivateKeyPEM string
 	WebhookActive bool
+	// IsUser marks a stand-in built from a token identity: its Slug is the
+	// token owner's login, which is a user account rather than "<slug>[bot]".
+	IsUser bool
+}
+
+// tokenRecord is a personal access token identity: the token acts as the user
+// it belongs to, and the webhook secret is the one the user chose for the
+// repository webhooks Paca registers with it.
+type tokenRecord struct {
+	ID            string // row id; the SPI IdentityRef.ID
+	Login         string
+	Name          string
+	Token         string
+	WebhookSecret string
 }
 
 // installRecord is an installation of an App on a GitHub account.
@@ -64,6 +87,7 @@ type installRecord struct {
 type setupSession struct {
 	State     string
 	Scope     string // shared | agent
+	Kind      string // "" or app: the manifest flow; token: a pasted access token
 	AgentID   string
 	AppName   string
 	OwnerOrg  string

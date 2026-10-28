@@ -20,6 +20,7 @@ type memStore struct {
 	apps     map[string]appRecord
 	installs map[string][]installRecord
 	setups   map[string]setupSession
+	tokens   map[string]tokenRecord
 	cache    map[string]memToken
 	seq      int
 }
@@ -30,7 +31,7 @@ type memToken struct {
 }
 
 func newMemStore() *memStore {
-	return &memStore{apps: map[string]appRecord{}, installs: map[string][]installRecord{}, setups: map[string]setupSession{}, cache: map[string]memToken{}}
+	return &memStore{apps: map[string]appRecord{}, installs: map[string][]installRecord{}, setups: map[string]setupSession{}, tokens: map[string]tokenRecord{}, cache: map[string]memToken{}}
 }
 
 func (m *memStore) loadApp(id string) (appRecord, error) {
@@ -41,6 +42,38 @@ func (m *memStore) loadApp(id string) (appRecord, error) {
 		return appRecord{}, errNoSuchApp
 	}
 	return a, nil
+}
+func (m *memStore) loadToken(id string) (tokenRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[id]
+	if !ok {
+		return tokenRecord{}, errNoSuchToken
+	}
+	return t, nil
+}
+func (m *memStore) createToken(t tokenRecord) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.seq++
+	t.ID = "created-token-" + string(rune('0'+m.seq))
+	m.tokens[t.ID] = t
+	return t.ID, nil
+}
+func (m *memStore) updateToken(t tokenRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.tokens[t.ID]; !ok {
+		return errNoSuchToken
+	}
+	m.tokens[t.ID] = t
+	return nil
+}
+func (m *memStore) deleteToken(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.tokens, id)
+	return nil
 }
 func (m *memStore) installations(appID string) ([]installRecord, error) {
 	m.mu.Lock()

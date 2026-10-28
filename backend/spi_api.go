@@ -16,6 +16,9 @@ import (
 // error type; GitHub's wording is kept short and never carries credentials.
 type ghAPI struct {
 	token string
+	// user is set for a personal access token: it acts as a person, so it has no
+	// check runs (only GitHub Apps create those).
+	user bool
 	// refresh, when set, replaces a token GitHub answered 401 to (revoked, for
 	// example because the App was uninstalled and installed again) and the
 	// request is retried once.

@@ -26,6 +26,9 @@ func (p *ghProvider) BeginIdentitySetup(_ context.Context, req gp.BeginSetupRequ
 	if req.Scope != gp.SetupShared && req.Scope != gp.SetupAgent {
 		return gp.SetupStep{}, gp.Errorf(gp.CodeValidation, "scope must be shared or agent")
 	}
+	if req.Params["kind"] == kindToken {
+		return p.beginTokenSetup(req)
+	}
 	if req.CallbackURL == "" || req.WebhookURL == "" {
 		return gp.SetupStep{}, gp.Errorf(gp.CodeValidation, "callback_url and webhook_url are required")
 	}
@@ -105,6 +108,14 @@ func buildSPIManifest(name, home, hookURL, callbackURL string, hookActive, publi
 
 // CompleteIdentitySetup implements gp.Provider.
 func (p *ghProvider) CompleteIdentitySetup(_ context.Context, req gp.CompleteSetupRequest) (gp.Identity, error) {
+	if strings.TrimSpace(req.State) != "" {
+		if s, err := p.store.loadSetup(req.State); err == nil && s.Kind == kindToken {
+			if s.Completed || !p.now().Before(s.ExpiresAt) {
+				return gp.Identity{}, gp.Errorf(gp.CodeForbidden, "unknown or expired setup state")
+			}
+			return p.completeToken(s, req.Params)
+		}
+	}
 	code := strings.TrimSpace(req.Params["code"])
 	if strings.TrimSpace(req.State) == "" || code == "" {
 		return gp.Identity{}, gp.Errorf(gp.CodeValidation, "state and code are required")
@@ -178,15 +189,24 @@ func (a *ghAPI) convertManifest(code string) (*ghManifestConversion, error) {
 	return &out, nil
 }
 
-// DeleteIdentity implements gp.IdentityDeleter: forget the App locally. The
-// App itself stays on GitHub (there is no API to delete it); the operator
-// removes it there.
+// DeleteIdentity implements gp.IdentityDeleter: forget the App (or token)
+// locally. The App itself stays on GitHub (there is no API to delete it); the
+// operator removes it there.
 func (p *ghProvider) DeleteIdentity(_ context.Context, req gp.DeleteIdentityRequest) (gp.Empty, error) {
-	if _, err := p.loadApp(req.Identity.ID); err != nil {
+	ident, err := p.loadIdentity(req.Identity.ID)
+	if err != nil {
 		if gp.AsError(err).Code == gp.CodeNotFound {
 			return gp.Empty{}, nil // already gone
 		}
 		return gp.Empty{}, err
+	}
+	if ident.token != nil {
+		// The token itself stays valid on GitHub until its owner revokes it, and
+		// the webhooks registered with it stay on the repositories.
+		if err := p.store.deleteToken(req.Identity.ID); err != nil {
+			return gp.Empty{}, gp.Errorf(gp.CodeInternal, "could not delete the identity")
+		}
+		return gp.Empty{}, nil
 	}
 	if err := p.store.deleteApp(req.Identity.ID); err != nil {
 		return gp.Empty{}, gp.Errorf(gp.CodeInternal, "could not delete the identity")

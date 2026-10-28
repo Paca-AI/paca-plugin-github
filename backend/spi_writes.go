@@ -218,6 +218,9 @@ func (p *ghProvider) SetStatus(_ context.Context, req gp.SetStatusRequest) (gp.S
 	if blank(summary) {
 		summary = req.Title
 	}
+	if api.user {
+		return p.setCommitStatus(api, repo, req, summary)
+	}
 	body := map[string]any{"name": req.Title, "status": status, "output": map[string]any{"title": req.Title, "summary": summary}}
 	if conclusion != "" {
 		body["conclusion"] = conclusion

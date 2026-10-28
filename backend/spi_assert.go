@@ -14,5 +14,6 @@ var (
 	_ gp.AssigneeSetter    = (*ghProvider)(nil)
 	_ gp.Merger            = (*ghProvider)(nil)
 	_ gp.IdentityDeleter   = (*ghProvider)(nil)
+	_ gp.WebhookManager    = (*ghProvider)(nil)
 	_ gp.AccessGranter     = (*ghProvider)(nil)
 )

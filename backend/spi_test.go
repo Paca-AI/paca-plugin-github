@@ -43,10 +43,19 @@ func TestDescribe_DeclaresWhatGitHubCanDo(t *testing.T) {
 	if c.CredentialModel != gp.CredentialEphemeral || c.WebhookScope != gp.WebhookApp || c.StatusKind != gp.StatusCheckRun {
 		t.Errorf("unexpected model: %+v", c)
 	}
+	// Two kinds of identity: an App (ephemeral credentials, app-level webhook,
+	// installed per account) and a token (static, a webhook per repository).
+	app, tok := c.Profile(gp.IdentityApp), c.Profile(gp.IdentityToken)
+	if app.CredentialModel != gp.CredentialEphemeral || app.WebhookScope != gp.WebhookApp || !app.AccessGrants {
+		t.Errorf("app profile = %+v", app)
+	}
+	if tok.CredentialModel != gp.CredentialStatic || tok.WebhookScope != gp.WebhookRepo || tok.AccessGrants || !c.WebhookManagement {
+		t.Errorf("token profile = %+v (webhook management %v)", tok, c.WebhookManagement)
+	}
 	if !strings.Contains(strings.Join(c.CIConfigGlobs, ","), ".github/workflows/**") {
 		t.Errorf("CI config globs = %v", c.CIConfigGlobs)
 	}
-	if c.CodeSearch || c.RerunChecks || c.Reactions || c.WebhookManagement {
+	if c.CodeSearch || c.RerunChecks || c.Reactions {
 		t.Errorf("operations that are not implemented must not be declared: %+v", c)
 	}
 }

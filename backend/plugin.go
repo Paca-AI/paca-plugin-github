@@ -1,8 +1,8 @@
 // Package main implements the com.paca.github backend WASM plugin: the GitHub
 // provider of Paca's Git provider SPI (spi_*.go). Core drives it through the
 // internal-only POST /_git/:op routes; the plugin has no routes of its own, no
-// per-project data and no frontend. Connections are GitHub App installations
-// only; personal access tokens are not supported.
+// per-project data and no frontend. A connection is a GitHub App (manifest
+// flow, installed per account) or a personal access token (spi_token.go).
 package main
 
 import (

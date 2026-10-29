@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	plugin "github.com/Paca-AI/plugin-sdk-go"
 	gp "github.com/Paca-AI/plugin-sdk-go/gitprovider"
@@ -400,26 +401,47 @@ func TestDescribeIdentity_MigratedTokenGetsItsHandle(t *testing.T) {
 	if got := st.tokens["legacy"]; got.Login != patLogin || len(got.WebhookSecret) < minWebhookSecretLen {
 		t.Fatalf("the completion must be stored: %+v", got)
 	}
-	if _, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: id.Ref}); err != nil || g.called("GET /user") != 1 {
-		t.Fatalf("a second description must not call GitHub (err %v, calls %d)", err, g.called("GET /user"))
+	if _, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: id.Ref}); err != nil || g.called("GET /user") != 2 {
+		t.Fatalf("each description makes one GET /user, none for completing (err %v, calls %d)", err, g.called("GET /user"))
 	}
 }
 
-// A token that is already complete is described from the store.
-func TestDescribeIdentity_StoredTokenMakesNoAPICall(t *testing.T) {
+// A token that is already complete is still checked once: the answer carries the
+// owner and the expiry, and core keeps it.
+func TestDescribeIdentity_StoredTokenAsksGitHubOnce(t *testing.T) {
 	p, g, _ := tokenProvider(t)
 	id, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: patIdentity}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id.Ref.Handle != patLogin || id.Kind != gp.IdentityToken || id.DisplayName == "" {
+	if id.Ref.Handle != patLogin || id.Kind != gp.IdentityToken || id.DisplayName == "" || !id.ExpiresAt.IsZero() {
 		t.Fatalf("identity = %+v", id)
 	}
-	if n := len(g.calls); n != 0 {
-		t.Errorf("made %d API calls", n)
+	if n := g.called("GET /user"); n != 1 || len(g.calls) != 1 {
+		t.Errorf("calls = %v, want exactly one GET /user", g.calls)
 	}
 	if strings.Contains(mustJSON(t, id), patSecret) {
 		t.Error("the token leaked")
+	}
+}
+
+func TestDescribeIdentity_ExpiryComesFromGitHub(t *testing.T) {
+	p, g, _ := tokenProvider(t)
+	g.expiry = "2026-11-30 10:00:00 UTC"
+	id, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: patIdentity}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 11, 30, 10, 0, 0, 0, time.UTC); !id.ExpiresAt.Equal(want) {
+		t.Errorf("ExpiresAt = %v, want %v", id.ExpiresAt, want)
+	}
+}
+
+func TestDescribeIdentity_RevokedStoredTokenIsForbidden(t *testing.T) {
+	p, _, st := tokenProvider(t)
+	st.tokens["old"] = tokenRecord{ID: "old", Login: patLogin, Token: "ghp_revoked", WebhookSecret: patHookKey}
+	if _, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: "old"}}); !hasCode(err, gp.CodeForbidden) {
+		t.Fatalf("err = %v, want forbidden", err)
 	}
 }
 

@@ -106,22 +106,64 @@ func (p *ghProvider) completeMigratedToken(t *tokenRecord) error {
 
 // DescribeIdentity implements gp.IdentityDescriber: who an existing identity is,
 // without a setup. Core asks for identities it holds with no handle, such as the
-// token connections the 0002 migration created. An App is described from what is
-// stored. A token is too, unless it came from the previous release: loadIdentity
-// then asks GitHub for the owner's login once and stores it, so the API is called
-// only for that first use. A token GitHub no longer accepts is forbidden.
+// token connections the 0002 migration created, and keeps the answer, so the
+// expiry of a token has to come from here.
+//
+// An App is described from what is stored, with no API call. A token is always
+// checked against GitHub (one GET /user): that gives the owner's login and name,
+// the expiry GitHub reports for tokens that have one, and tells a revoked token
+// (forbidden). A token migrated from the previous release is completed from the
+// same response (blank login filled, webhook secret generated, both stored). The
+// store only fills blanks, so a later rename on GitHub is reported here but not
+// written back. Unknown ids are not_found.
 func (p *ghProvider) DescribeIdentity(_ context.Context, req gp.DescribeIdentityRequest) (gp.Identity, error) {
-	if strings.TrimSpace(req.Identity.ID) == "" {
+	id := req.Identity.ID
+	if strings.TrimSpace(id) == "" {
 		return gp.Identity{}, notFoundIdentity()
 	}
-	ident, err := p.loadIdentity(req.Identity.ID)
+	app, err := p.loadApp(id)
+	if err == nil {
+		return identityOf(app), nil
+	}
+	if gp.AsError(err).Code != gp.CodeNotFound {
+		return gp.Identity{}, err
+	}
+	tok, terr := p.store.loadToken(id)
+	switch terr {
+	case nil:
+	case errNoSuchToken:
+		return gp.Identity{}, err
+	default:
+		return gp.Identity{}, gp.Errorf(gp.CodeInternal, "could not load the GitHub identity")
+	}
+	var u ghAuthUser
+	status, text, headers, err := (&ghAPI{token: tok.Token}).doRaw("GET", "/user", nil, "")
 	if err != nil {
 		return gp.Identity{}, err
 	}
-	if ident.app != nil {
-		return identityOf(*ident.app), nil
+	if status >= 400 {
+		return gp.Identity{}, mapGitHubError(status, text, headers)
 	}
-	return identityOfToken(*ident.token), nil
+	if err := decodeInto(text, &u); err != nil {
+		return gp.Identity{}, err
+	}
+	if u.Login == "" {
+		return gp.Identity{}, gp.Errorf(gp.CodeInternal, "GitHub returned an incomplete user")
+	}
+	if tok.Login == "" || tok.WebhookSecret == "" {
+		// Hand the answer over so completing does not ask GitHub again.
+		if tok.Login == "" {
+			tok.Login, tok.Name = u.Login, u.Name
+		}
+		if err := p.completeMigratedToken(&tok); err != nil {
+			return gp.Identity{}, err
+		}
+	}
+	ident := identityOfToken(tokenRecord{ID: tok.ID, Login: u.Login, Name: u.Name})
+	if exp := tokenExpiry(headers); !exp.IsZero() {
+		ident.ExpiresAt = exp
+	}
+	return ident, nil
 }
 
 // loadTokenIdentity is loadIdentity for operations that only a token supports.

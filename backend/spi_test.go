@@ -793,3 +793,18 @@ func TestClaimSetupCodeIsSingleUse(t *testing.T) {
 		t.Error("second claim succeeded")
 	}
 }
+
+// An App is described from what is stored: the slug is its handle.
+func TestDescribeIdentity_App(t *testing.T) {
+	p, _, _ := seededProvider(t)
+	id, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: fakeAppRowID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Ref.ID != fakeAppRowID || id.Ref.Handle != fakeSlug || id.Kind != gp.IdentityApp || id.Host != githubHost || id.DisplayName != "Paca" {
+		t.Fatalf("identity = %+v", id)
+	}
+	if !p.Describe().Capabilities.IdentityDescription {
+		t.Error("identity_description must be declared")
+	}
+}

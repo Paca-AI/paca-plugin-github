@@ -383,3 +383,73 @@ func TestTokenSetup_GeneratesTheWebhookSecretWhenLeftEmpty(t *testing.T) {
 		t.Fatalf("generated secret = %q", got)
 	}
 }
+
+// DescribeIdentity completes a migrated token (login filled and persisted) and
+// asks GitHub only that once.
+func TestDescribeIdentity_MigratedTokenGetsItsHandle(t *testing.T) {
+	p, g, st := tokenProvider(t)
+	st.tokens["legacy"] = tokenRecord{ID: "legacy", Token: patSecret}
+
+	id, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: "legacy"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Ref.ID != "legacy" || id.Ref.Handle != patLogin || id.Kind != gp.IdentityToken || id.Host != githubHost || id.DisplayName != "Paca Machine ("+patLogin+")" {
+		t.Fatalf("identity = %+v", id)
+	}
+	if got := st.tokens["legacy"]; got.Login != patLogin || len(got.WebhookSecret) < minWebhookSecretLen {
+		t.Fatalf("the completion must be stored: %+v", got)
+	}
+	if _, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: id.Ref}); err != nil || g.called("GET /user") != 1 {
+		t.Fatalf("a second description must not call GitHub (err %v, calls %d)", err, g.called("GET /user"))
+	}
+}
+
+// A token that is already complete is described from the store.
+func TestDescribeIdentity_StoredTokenMakesNoAPICall(t *testing.T) {
+	p, g, _ := tokenProvider(t)
+	id, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: patIdentity}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Ref.Handle != patLogin || id.Kind != gp.IdentityToken || id.DisplayName == "" {
+		t.Fatalf("identity = %+v", id)
+	}
+	if n := len(g.calls); n != 0 {
+		t.Errorf("made %d API calls", n)
+	}
+	if strings.Contains(mustJSON(t, id), patSecret) {
+		t.Error("the token leaked")
+	}
+}
+
+func TestDescribeIdentity_UnknownIsNotFound(t *testing.T) {
+	p, _, _ := tokenProvider(t)
+	for _, id := range []string{"nope", ""} {
+		if _, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: id}}); !hasCode(err, gp.CodeNotFound) {
+			t.Errorf("id %q: err = %v, want not_found", id, err)
+		}
+	}
+}
+
+// A migrated token GitHub rejects cannot be completed: forbidden, nothing stored.
+func TestDescribeIdentity_RevokedMigratedTokenIsForbidden(t *testing.T) {
+	p, _, st := tokenProvider(t)
+	st.tokens["legacy"] = tokenRecord{ID: "legacy", Token: "ghp_revoked"}
+	_, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: "legacy"}})
+	if !hasCode(err, gp.CodeForbidden) {
+		t.Fatalf("err = %v, want forbidden", err)
+	}
+	if st.tokens["legacy"].Login != "" {
+		t.Error("nothing must be stored for a rejected token")
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}

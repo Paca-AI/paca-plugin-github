@@ -104,6 +104,26 @@ func (p *ghProvider) completeMigratedToken(t *tokenRecord) error {
 	return nil
 }
 
+// DescribeIdentity implements gp.IdentityDescriber: who an existing identity is,
+// without a setup. Core asks for identities it holds with no handle, such as the
+// token connections the 0002 migration created. An App is described from what is
+// stored. A token is too, unless it came from the previous release: loadIdentity
+// then asks GitHub for the owner's login once and stores it, so the API is called
+// only for that first use. A token GitHub no longer accepts is forbidden.
+func (p *ghProvider) DescribeIdentity(_ context.Context, req gp.DescribeIdentityRequest) (gp.Identity, error) {
+	if strings.TrimSpace(req.Identity.ID) == "" {
+		return gp.Identity{}, notFoundIdentity()
+	}
+	ident, err := p.loadIdentity(req.Identity.ID)
+	if err != nil {
+		return gp.Identity{}, err
+	}
+	if ident.app != nil {
+		return identityOf(*ident.app), nil
+	}
+	return identityOfToken(*ident.token), nil
+}
+
 // loadTokenIdentity is loadIdentity for operations that only a token supports.
 func (p *ghProvider) loadTokenIdentity(id string) (tokenRecord, error) {
 	ident, err := p.loadIdentity(id)

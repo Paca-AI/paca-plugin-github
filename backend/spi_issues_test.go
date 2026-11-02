@@ -19,18 +19,16 @@ func TestListIssuesFiltersPullRequestsWithoutLosingPages(t *testing.T) {
 		if u.Path != "/repos/acme/web/issues" {
 			return g.fetch(method, rawURL, headers, body)
 		}
-		if method != "GET" || u.Query().Get("state") != "closed" || u.Query().Get("per_page") != "100" {
+		if method != "GET" || u.Query().Get("state") != "closed" || u.Query().Get("per_page") != "1" {
 			t.Fatalf("unexpected request: %s %s", method, rawURL)
 		}
 		switch u.Query().Get("page") {
 		case "1":
-			items := make([]map[string]any, 100)
-			for i := range items {
-				items[i] = map[string]any{"number": i + 1, "pull_request": map[string]any{"url": "x"}}
-			}
-			return resp(200, items)
+			return resp(200, []map[string]any{{"number": 1, "pull_request": map[string]any{"url": "x"}}})
 		case "2":
 			return resp(200, []map[string]any{{"number": 101, "title": "Bug", "body": "Details", "state": "closed", "html_url": "https://github.com/acme/web/issues/101", "user": map[string]string{"login": "alice"}, "labels": []map[string]string{{"name": "bug"}}, "assignees": []map[string]string{{"login": "bob"}}}})
+		case "3":
+			return resp(200, []map[string]any{})
 		default:
 			t.Fatalf("unexpected page: %s", rawURL)
 			return nil, nil
@@ -41,8 +39,12 @@ func TestListIssuesFiltersPullRequestsWithoutLosingPages(t *testing.T) {
 		t.Fatalf("first page: %+v, %v", first, err)
 	}
 	second, err := p.ListIssues(bg, gp.ListIssuesRequest{Target: webTarget(), State: "closed", Cursor: first.NextCursor})
-	if err != nil || len(second.Items) != 1 || second.NextCursor != "" {
+	if err != nil || len(second.Items) != 1 || second.NextCursor != "3" {
 		t.Fatalf("second page: %+v, %v", second, err)
+	}
+	third, err := p.ListIssues(bg, gp.ListIssuesRequest{Target: webTarget(), State: "closed", Cursor: second.NextCursor})
+	if err != nil || len(third.Items) != 0 || third.NextCursor != "" {
+		t.Fatalf("third page: %+v, %v", third, err)
 	}
 	i := second.Items[0]
 	if i.Number != "101" || i.Title != "Bug" || i.Body != "Details" || i.State != "closed" || i.Author != "alice" || i.URL != "https://github.com/acme/web/issues/101" || len(i.Labels) != 1 || i.Labels[0] != "bug" || len(i.Assignees) != 1 || i.Assignees[0] != "bob" {

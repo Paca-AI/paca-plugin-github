@@ -9,6 +9,7 @@ var (
 	_ gp.Provider          = (*ghProvider)(nil)
 	_ gp.ThreadResolver    = (*ghProvider)(nil)
 	_ gp.FileReader        = (*ghProvider)(nil)
+	_ gp.IssueLister       = (*ghProvider)(nil)
 	_ gp.LabelManager      = (*ghProvider)(nil)
 	_ gp.ReviewerRequester = (*ghProvider)(nil)
 	_ gp.AssigneeSetter    = (*ghProvider)(nil)

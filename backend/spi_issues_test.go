@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"testing"
 
@@ -97,6 +96,6 @@ func TestListIssuesWireAndDefaultState(t *testing.T) {
 		Result gp.IssuePage `json:"result"`
 	}
 	if err := json.Unmarshal(out, &wire); err != nil || !wire.OK || len(wire.Result.Items) != 0 {
-		t.Fatal(fmt.Sprintf("wire result: %s (%v)", out, err))
+		t.Fatalf("wire result: %s (%v)", out, err)
 	}
 }

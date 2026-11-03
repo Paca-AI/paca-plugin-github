@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	plugin "github.com/Paca-AI/plugin-sdk-go"
 	gp "github.com/Paca-AI/plugin-sdk-go/gitprovider"
@@ -382,4 +383,130 @@ func TestTokenSetup_GeneratesTheWebhookSecretWhenLeftEmpty(t *testing.T) {
 	if got := st.tokens[ident.Ref.ID].WebhookSecret; len(got) < minWebhookSecretLen {
 		t.Fatalf("generated secret = %q", got)
 	}
+}
+
+// DescribeIdentity completes a migrated token (login filled and persisted) and
+// asks GitHub only that once.
+func TestDescribeIdentity_MigratedTokenGetsItsHandle(t *testing.T) {
+	p, g, st := tokenProvider(t)
+	st.tokens["legacy"] = tokenRecord{ID: "legacy", Token: patSecret}
+
+	id, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: "legacy"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Ref.ID != "legacy" || id.Ref.Handle != patLogin || id.Kind != gp.IdentityToken || id.Host != githubHost || id.DisplayName != "Paca Machine ("+patLogin+")" {
+		t.Fatalf("identity = %+v", id)
+	}
+	if got := st.tokens["legacy"]; got.Login != patLogin || len(got.WebhookSecret) < minWebhookSecretLen {
+		t.Fatalf("the completion must be stored: %+v", got)
+	}
+	if _, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: id.Ref}); err != nil || g.called("GET /user") != 2 {
+		t.Fatalf("each description makes one GET /user, none for completing (err %v, calls %d)", err, g.called("GET /user"))
+	}
+}
+
+// A token that is already complete is still checked once: the answer carries the
+// owner and the expiry, and core keeps it.
+func TestDescribeIdentity_StoredTokenAsksGitHubOnce(t *testing.T) {
+	p, g, _ := tokenProvider(t)
+	id, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: patIdentity}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id.Ref.Handle != patLogin || id.Kind != gp.IdentityToken || id.DisplayName == "" || !id.ExpiresAt.IsZero() {
+		t.Fatalf("identity = %+v", id)
+	}
+	if n := g.called("GET /user"); n != 1 || len(g.calls) != 1 {
+		t.Errorf("calls = %v, want exactly one GET /user", g.calls)
+	}
+	if strings.Contains(mustJSON(t, id), patSecret) {
+		t.Error("the token leaked")
+	}
+}
+
+func TestDescribeIdentity_ExpiryComesFromGitHub(t *testing.T) {
+	p, g, _ := tokenProvider(t)
+	g.expiry = "2026-11-30 10:00:00 UTC"
+	id, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: patIdentity}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 11, 30, 10, 0, 0, 0, time.UTC); !id.ExpiresAt.Equal(want) {
+		t.Errorf("ExpiresAt = %v, want %v", id.ExpiresAt, want)
+	}
+}
+
+func TestDescribeIdentity_RevokedStoredTokenIsForbidden(t *testing.T) {
+	p, _, st := tokenProvider(t)
+	st.tokens["old"] = tokenRecord{ID: "old", Login: patLogin, Token: "ghp_revoked", WebhookSecret: patHookKey}
+	if _, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: "old"}}); !hasCode(err, gp.CodeForbidden) {
+		t.Fatalf("err = %v, want forbidden", err)
+	}
+}
+
+func TestDescribeIdentity_UnknownIsNotFound(t *testing.T) {
+	p, _, _ := tokenProvider(t)
+	for _, id := range []string{"nope", ""} {
+		if _, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: id}}); !hasCode(err, gp.CodeNotFound) {
+			t.Errorf("id %q: err = %v, want not_found", id, err)
+		}
+	}
+}
+
+// A migrated token GitHub rejects cannot be completed: forbidden, nothing stored.
+func TestDescribeIdentity_RevokedMigratedTokenIsForbidden(t *testing.T) {
+	p, _, st := tokenProvider(t)
+	st.tokens["legacy"] = tokenRecord{ID: "legacy", Token: "ghp_revoked"}
+	_, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: "legacy"}})
+	if !hasCode(err, gp.CodeForbidden) {
+		t.Fatalf("err = %v, want forbidden", err)
+	}
+	if st.tokens["legacy"].Login != "" {
+		t.Error("nothing must be stored for a rejected token")
+	}
+}
+
+// Whatever goes wrong while describing a token, the error handed back to core
+// must not carry the token, even when GitHub or the transport echoes it.
+func TestDescribeIdentity_ErrorsNeverCarryTheToken(t *testing.T) {
+	echo := func(status int) func(string, string, map[string]string, string) (*plugin.FetchResponse, error) {
+		return func(_, _ string, h map[string]string, _ string) (*plugin.FetchResponse, error) {
+			body, _ := json.Marshal(map[string]string{"message": "bad token " + patSecret})
+			return &plugin.FetchResponse{Status: status, Body: string(body), Headers: map[string]string{"x-echo": h["Authorization"]}}, nil
+		}
+	}
+	for name, f := range map[string]func(string, string, map[string]string, string) (*plugin.FetchResponse, error){
+		"401 rejected": echo(401),
+		"500 upstream": echo(500),
+		"transport error": func(string, string, map[string]string, string) (*plugin.FetchResponse, error) {
+			return nil, fmt.Errorf("dial failed for %s", patSecret)
+		},
+		"unreadable body": func(string, string, map[string]string, string) (*plugin.FetchResponse, error) {
+			return &plugin.FetchResponse{Status: 200, Body: "not json " + patSecret, Headers: map[string]string{}}, nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, _, _ := tokenProvider(t)
+			old := fetch
+			fetch = f
+			t.Cleanup(func() { fetch = old })
+			_, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: patIdentity}})
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			if got := mustJSON(t, gp.AsError(err)) + err.Error(); strings.Contains(got, patSecret) || strings.Contains(got, "Bearer") {
+				t.Errorf("the error carries the token: %s", got)
+			}
+		})
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

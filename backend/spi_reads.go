@@ -419,14 +419,12 @@ func (p *ghProvider) ListIssues(_ context.Context, req gp.ListIssuesRequest) (gp
 		return gp.IssuePage{}, err
 	}
 	var issues []ghIssue
-	// shortcut: one large response can still exceed the WASM arena; upgrade the SDK transport limit handling.
-	if err := api.get(repo+"/issues?state="+state+"&per_page=1&page="+strconv.Itoa(pg), &issues); err != nil {
+	if err := api.get(repo+"/issues?state="+state+"&per_page="+strconv.Itoa(listPerPage)+"&page="+strconv.Itoa(pg), &issues); err != nil {
 		return gp.IssuePage{}, err
 	}
-	out := gp.IssuePage{Items: []gp.Issue{}}
-	if len(issues) > 0 {
-		out.NextCursor = strconv.Itoa(pg + 1)
-	}
+	// GitHub's issues endpoint also returns pull requests, so the cursor must
+	// follow the raw page size, not the filtered item count.
+	out := gp.IssuePage{Items: []gp.Issue{}, NextCursor: nextPage(len(issues), pg)}
 	for _, issue := range issues {
 		if len(issue.PullRequest) == 0 || string(issue.PullRequest) == "null" {
 			out.Items = append(out.Items, issue.toIssue())

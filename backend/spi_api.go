@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	plugin "github.com/Paca-AI/plugin-sdk-go"
 	gp "github.com/Paca-AI/plugin-sdk-go/gitprovider"
 )
 
@@ -67,7 +69,7 @@ func (a *ghAPI) doRaw(method, path string, body any, accept string) (int, string
 	}
 	resp, err := fetch(method, rawURL, h, payload)
 	if err != nil {
-		return 0, "", nil, gp.Errorf(gp.CodeTransient, "GitHub is unreachable")
+		return 0, "", nil, fetchFailure(err)
 	}
 	if resp.Status == 401 && a.refresh != nil {
 		refresh := a.refresh
@@ -81,13 +83,23 @@ func (a *ghAPI) doRaw(method, path string, body any, accept string) (int, string
 		a.token = tok
 		h["Authorization"] = "Bearer " + tok
 		if resp, err = fetch(method, rawURL, h, payload); err != nil {
-			return 0, "", nil, gp.Errorf(gp.CodeTransient, "GitHub is unreachable")
+			return 0, "", nil, fetchFailure(err)
 		}
 	}
 	if resp.Status >= 400 {
 		return resp.Status, resp.Body, resp.Headers, mapGitHubError(resp.Status, resp.Body, resp.Headers)
 	}
 	return resp.Status, resp.Body, resp.Headers, nil
+}
+
+// fetchFailure maps a failed host fetch to a *gp.Error. A response too large
+// for the plugin to receive is a size problem, not an outage, so it must not
+// be reported (or retried) as "GitHub is unreachable".
+func fetchFailure(err error) error {
+	if errors.Is(err, plugin.ErrResponseTooLarge) {
+		return gp.Errorf(gp.CodeInternal, "GitHub's response was too large for the plugin to receive")
+	}
+	return gp.Errorf(gp.CodeTransient, "GitHub is unreachable")
 }
 
 func (a *ghAPI) get(path string, out any) error {

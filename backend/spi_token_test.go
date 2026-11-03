@@ -467,6 +467,41 @@ func TestDescribeIdentity_RevokedMigratedTokenIsForbidden(t *testing.T) {
 	}
 }
 
+// Whatever goes wrong while describing a token, the error handed back to core
+// must not carry the token, even when GitHub or the transport echoes it.
+func TestDescribeIdentity_ErrorsNeverCarryTheToken(t *testing.T) {
+	echo := func(status int) func(string, string, map[string]string, string) (*plugin.FetchResponse, error) {
+		return func(_, _ string, h map[string]string, _ string) (*plugin.FetchResponse, error) {
+			body, _ := json.Marshal(map[string]string{"message": "bad token " + patSecret})
+			return &plugin.FetchResponse{Status: status, Body: string(body), Headers: map[string]string{"x-echo": h["Authorization"]}}, nil
+		}
+	}
+	for name, f := range map[string]func(string, string, map[string]string, string) (*plugin.FetchResponse, error){
+		"401 rejected": echo(401),
+		"500 upstream": echo(500),
+		"transport error": func(string, string, map[string]string, string) (*plugin.FetchResponse, error) {
+			return nil, fmt.Errorf("dial failed for %s", patSecret)
+		},
+		"unreadable body": func(string, string, map[string]string, string) (*plugin.FetchResponse, error) {
+			return &plugin.FetchResponse{Status: 200, Body: "not json " + patSecret, Headers: map[string]string{}}, nil
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, _, _ := tokenProvider(t)
+			old := fetch
+			fetch = f
+			t.Cleanup(func() { fetch = old })
+			_, err := p.DescribeIdentity(bg, gp.DescribeIdentityRequest{Identity: gp.IdentityRef{ID: patIdentity}})
+			if err == nil {
+				t.Fatal("want an error")
+			}
+			if got := mustJSON(t, gp.AsError(err)) + err.Error(); strings.Contains(got, patSecret) || strings.Contains(got, "Bearer") {
+				t.Errorf("the error carries the token: %s", got)
+			}
+		})
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)

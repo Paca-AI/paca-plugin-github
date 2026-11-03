@@ -2,7 +2,7 @@
   "id": "com.paca.github",
   "displayName": "GitHub",
   "description": "GitHub provider for Paca's Git integration: GitHub App or personal access token connections, repository access, credentials and webhooks.",
-  "version": "0.6.0",
+  "version": "0.5.0",
   "minCoreVersion": "v0.20.0",
   "capabilities": ["git-provider"],
   "permissions": ["db.read", "db.write"],

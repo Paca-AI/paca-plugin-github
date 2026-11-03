@@ -478,6 +478,12 @@ func (g *fakeGitHub) repoSub(method, sub string, q url.Values, headers map[strin
 		return resp(201, map[string]any{"ref": str(payload, "ref")})
 
 	// ── issues and comments ──
+	case sub == "issues" && method == "GET":
+		items := []map[string]any{}
+		if q.Get("state") != "closed" && q.Get("page") == "1" {
+			items = append(items, map[string]any{"number": 7, "title": "Bug report", "body": "it broke", "state": "open", "html_url": "https://github.com/acme/web/issues/7", "user": map[string]string{"login": "reader"}})
+		}
+		return resp(200, items)
 	case seg[0] == "issues" && len(seg) == 2 && method == "GET":
 		n, _ := strconv.Atoi(seg[1])
 		if n != 7 && g.prs[n] == nil {

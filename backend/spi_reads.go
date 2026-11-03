@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/url"
 	"strconv"
 	"strings"
@@ -360,6 +361,29 @@ func (p *ghProvider) ListComments(_ context.Context, req gp.ListCommentsRequest)
 	return out, nil
 }
 
+type ghIssue struct {
+	Number      int                     `json:"number"`
+	Title       string                  `json:"title"`
+	Body        string                  `json:"body"`
+	State       string                  `json:"state"`
+	HTMLURL     string                  `json:"html_url"`
+	User        ghUser                  `json:"user"`
+	Labels      []struct{ Name string } `json:"labels"`
+	Assignees   []ghUser                `json:"assignees"`
+	PullRequest json.RawMessage         `json:"pull_request"`
+}
+
+func (is ghIssue) toIssue() gp.Issue {
+	out := gp.Issue{Number: strconv.Itoa(is.Number), Title: is.Title, Body: is.Body, State: is.State, Author: is.User.Login, URL: is.HTMLURL}
+	for _, l := range is.Labels {
+		out.Labels = append(out.Labels, l.Name)
+	}
+	for _, a := range is.Assignees {
+		out.Assignees = append(out.Assignees, a.Login)
+	}
+	return out
+}
+
 // GetIssue implements gp.Provider.
 func (p *ghProvider) GetIssue(_ context.Context, req gp.IssueRequest) (gp.Issue, error) {
 	num, err := number(req.Number)
@@ -370,25 +394,43 @@ func (p *ghProvider) GetIssue(_ context.Context, req gp.IssueRequest) (gp.Issue,
 	if err != nil {
 		return gp.Issue{}, err
 	}
-	var is struct {
-		Number    int                     `json:"number"`
-		Title     string                  `json:"title"`
-		Body      string                  `json:"body"`
-		State     string                  `json:"state"`
-		HTMLURL   string                  `json:"html_url"`
-		User      ghUser                  `json:"user"`
-		Labels    []struct{ Name string } `json:"labels"`
-		Assignees []ghUser                `json:"assignees"`
-	}
+	var is ghIssue
 	if err := api.get(repo+"/issues/"+num, &is); err != nil {
 		return gp.Issue{}, err
 	}
-	out := gp.Issue{Number: strconv.Itoa(is.Number), Title: is.Title, Body: is.Body, State: is.State, Author: is.User.Login, URL: is.HTMLURL}
-	for _, l := range is.Labels {
-		out.Labels = append(out.Labels, l.Name)
+	return is.toIssue(), nil
+}
+
+// ListIssues implements gp.IssueLister.
+func (p *ghProvider) ListIssues(_ context.Context, req gp.ListIssuesRequest) (gp.IssuePage, error) {
+	state := req.State
+	if state == "" {
+		state = "open"
 	}
-	for _, a := range is.Assignees {
-		out.Assignees = append(out.Assignees, a.Login)
+	if state != "open" && state != "closed" && state != "all" {
+		return gp.IssuePage{}, gp.Errorf(gp.CodeValidation, "invalid issue state")
+	}
+	pg, err := page(req.Cursor)
+	if err != nil {
+		return gp.IssuePage{}, err
+	}
+	api, repo, err := p.apiFor(req.Target)
+	if err != nil {
+		return gp.IssuePage{}, err
+	}
+	var issues []ghIssue
+	// shortcut: one large response can still exceed the WASM arena; upgrade the SDK transport limit handling.
+	if err := api.get(repo+"/issues?state="+state+"&per_page=1&page="+strconv.Itoa(pg), &issues); err != nil {
+		return gp.IssuePage{}, err
+	}
+	out := gp.IssuePage{Items: []gp.Issue{}}
+	if len(issues) > 0 {
+		out.NextCursor = strconv.Itoa(pg + 1)
+	}
+	for _, issue := range issues {
+		if len(issue.PullRequest) == 0 || string(issue.PullRequest) == "null" {
+			out.Items = append(out.Items, issue.toIssue())
+		}
 	}
 	return out, nil
 }

@@ -65,6 +65,7 @@ func (p *ghProvider) Describe() gp.Info {
 
 			ResolveThreads:    true,
 			FileRead:          true,
+			IssueList:         true,
 			Labels:            true,
 			ReviewerRequests:  true,
 			Assignees:         true,
